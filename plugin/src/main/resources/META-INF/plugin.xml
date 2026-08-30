@@ -1,0 +1,13 @@
+<consulo-plugin>
+    <id>consulo.turtle.commander</id>
+    <name>Turtle Commander</name>
+    <vendor>jhspetersson@gmail.com</vendor>
+    <tags>
+        <tag>file.manager</tag>
+    </tags>
+    <version>SNAPSHOT</version>
+    <description>
+        A dual-panel file manager inspired by classic orthodox file managers
+        like Total Commander and Far Manager.
+    </description>
+</consulo-plugin>
