@@ -1,24 +1,25 @@
 package consulo.turtlecommander.settings;
 
-import consulo.ui.ex.awt.ColorChooserService;
-import consulo.ui.ex.JBColor;
+import consulo.localize.LocalizeValue;
+import consulo.ui.ColorPickerBuilder;
 import consulo.ui.ex.awtUnsafe.TargetAWT;
 import consulo.ui.ex.popup.BaseListPopupStep;
 import consulo.ui.ex.popup.JBPopupFactory;
 import consulo.ui.ex.popup.PopupStep;
 import consulo.ui.image.Image;
+import consulo.ui.style.StandardColors;
 import org.jspecify.annotations.Nullable;
 
-import javax.swing.JButton;
-import javax.swing.JComponent;
-import java.awt.Color;
-import java.awt.Dimension;
+import javax.swing.*;
+import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 
-/** A swatch button that opens the shared preset-colour popup. */
+/**
+ * A swatch button that opens the shared preset-colour popup.
+ */
 public class ColorPickerButton extends JButton {
     private static final int BUTTON_SIZE = 28;
     private static final String NO_COLOR_TEXT = "...";
@@ -67,7 +68,7 @@ public class ColorPickerButton extends JButton {
         items.add(null);
 
         BaseListPopupStep<Map.Entry<String, String>> step =
-            new BaseListPopupStep<>(title, items) {
+            new BaseListPopupStep<Map.Entry<String, String>>(title, items) {
                 @Override
                 public String getTextFor(Map.Entry<String, String> value) {
                     return value != null ? value.getKey() : "Custom...";
@@ -88,13 +89,17 @@ public class ColorPickerButton extends JButton {
                 public @Nullable PopupStep<?> onChosen(Map.Entry<String, String> selectedValue,
                                                        boolean finalChoice) {
                     if (selectedValue == null) {
-                        return doFinalStep(() -> ColorChooserService.getInstance().showDialog(
-                            anchor, title, current != null ? current : JBColor.GRAY, true,
-                            chosen -> {
-                                if (chosen != null) {
-                                    onPick.accept(chosen);
-                                }
-                            }));
+                        return doFinalStep(() -> {
+                            ColorPickerBuilder.create()
+                                .withTitle(LocalizeValue.localizeTODO(title))
+                                .withColor(current != null ? TargetAWT.from(current) : StandardColors.GRAY)
+                                .showAsync(TargetAWT.wrap(anchor))
+                                .whenCompleteAsync((colorValue, throwable) -> {
+                                    if (colorValue != null) {
+                                        onPick.accept(TargetAWT.to(colorValue));
+                                    }
+                                });
+                        });
                     }
                     Color color = PresetColors.decode(selectedValue.getValue());
                     return doFinalStep(() -> onPick.accept(color));

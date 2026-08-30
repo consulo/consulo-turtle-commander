@@ -1,13 +1,8 @@
 package consulo.turtlecommander.ui;
 
-import consulo.annotation.component.ExtensionImpl;
 import consulo.application.Application;
-import consulo.application.dumb.DumbAware;
 import consulo.disposer.Disposable;
-import consulo.localize.LocalizeValue;
-import consulo.platform.base.icon.PlatformIconGroup;
 import consulo.project.Project;
-import consulo.project.ui.wm.ToolWindowFactory;
 import consulo.turtlecommander.service.FileManagerState;
 import consulo.turtlecommander.service.FileManagerStateService;
 import consulo.turtlecommander.service.FileOperationService;
@@ -16,39 +11,31 @@ import consulo.turtlecommander.settings.ColumnConfig;
 import consulo.turtlecommander.settings.PanelLayout;
 import consulo.turtlecommander.settings.TurtleCommanderSettings;
 import consulo.turtlecommander.settings.TurtleCommanderSettingsListener;
-import consulo.ui.annotation.RequiredUIAccess;
 import consulo.ui.ex.awt.OnePixelSplitter;
-import consulo.ui.ex.content.Content;
-import consulo.ui.ex.content.ContentFactory;
-import consulo.ui.ex.toolWindow.ToolWindow;
-import consulo.ui.ex.toolWindow.ToolWindowAnchor;
-import consulo.ui.image.Image;
+import consulo.virtualFileSystem.VirtualFile;
 import org.jspecify.annotations.Nullable;
 
-import javax.swing.JPanel;
-import java.awt.BorderLayout;
+import javax.swing.*;
+import java.awt.*;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-/** Builds the tool window: two panels, the layout hosting them, and the bottom bars. */
-@ExtensionImpl
-public class TurtleCommanderToolWindowFactory implements ToolWindowFactory, DumbAware {
+/**
+ * Builds the tool window: two panels, the layout hosting them, and the bottom bars.
+ */
+public class TurtleCommanderToolWindowFactory {
     public static final String ID = "Turtle Commander";
 
-    /** Columns only populated while visible, so turning one on requires a re-listing. */
+    /**
+     * Columns only populated while visible, so turning one on requires a re-listing.
+     */
     private static final Set<String> DATA_COLUMNS =
         Set.of("User", "Group", "Permissions", "Inode", "Links");
 
-    @Override
-    public String getId() {
-        return ID;
-    }
 
-    @RequiredUIAccess
-    @Override
-    public void createToolWindowContent(Project project, ToolWindow toolWindow) {
+    public static JComponent createContent(Project project, VirtualFile file, Disposable disposable) {
         Path initialPath = resolveInitialPath(project);
         FileManagerStateService stateService = FileManagerStateService.getInstance(project);
         FileManagerState savedState = stateService.getState();
@@ -58,14 +45,8 @@ public class TurtleCommanderToolWindowFactory implements ToolWindowFactory, Dumb
         leftPanel.setOtherPanel(rightPanel);
         rightPanel.setOtherPanel(leftPanel);
 
-        // Set before restoreState so the restored tabs are registered too: a tab must be disposed
-        // with the tool window, not only when the user closes it — otherwise a tab left inside an
-        // archive leaks its filesystem handles and extraction temp dir at project close.
-        // The content manager is the tool window's Disposable in Consulo, so it is what ties a
-        // tab's lifetime to the tool window's.
-        Disposable toolWindowDisposable = toolWindow.getContentManager();
-        leftPanel.setParentDisposable(toolWindowDisposable);
-        rightPanel.setParentDisposable(toolWindowDisposable);
+        leftPanel.setParentDisposable(disposable);
+        rightPanel.setParentDisposable(disposable);
 
         leftPanel.restoreState(savedState.leftPanel, stateService);
         rightPanel.restoreState(savedState.rightPanel, stateService);
@@ -75,8 +56,10 @@ public class TurtleCommanderToolWindowFactory implements ToolWindowFactory, Dumb
         stateService.registerPanels(leftPanel, rightPanel, layoutHost.currentSplitter());
         stateService.setSwapSinglePanelCallback(layoutHost::swapSinglePanel);
 
+        JPanel contentPanel = new JPanel(new BorderLayout());
+
         TurtleCommanderSettings settings = TurtleCommanderSettings.getInstance();
-        CommandBar commandBar = new CommandBar(leftPanel, rightPanel, toolWindow, toolWindowDisposable);
+        CommandBar commandBar = new CommandBar(leftPanel, rightPanel, project, file, contentPanel, disposable);
         commandBar.setVisible(settings.getState().showCommandBar);
 
         CommandInputBar commandInputBar = new CommandInputBar(project, leftPanel, rightPanel);
@@ -86,15 +69,13 @@ public class TurtleCommanderToolWindowFactory implements ToolWindowFactory, Dumb
         southPanel.add(commandInputBar, BorderLayout.NORTH);
         southPanel.add(commandBar, BorderLayout.SOUTH);
 
-        JPanel contentPanel = new JPanel(new BorderLayout());
         contentPanel.add(layoutHost, BorderLayout.CENTER);
         contentPanel.add(southPanel, BorderLayout.SOUTH);
 
-        Content content = ContentFactory.getInstance().createContent(contentPanel, null, false);
-        toolWindow.getContentManager().addContent(content);
-
-        subscribeToSettings(project, toolWindowDisposable, layoutHost, commandBar, contentPanel,
+        subscribeToSettings(project, disposable, layoutHost, commandBar, contentPanel,
             leftPanel, rightPanel);
+
+        return contentPanel;
     }
 
     /**
@@ -149,7 +130,9 @@ public class TurtleCommanderToolWindowFactory implements ToolWindowFactory, Dumb
             repaint();
         }
 
-        /** In single-panel mode there is nowhere to move focus, so "other panel" swaps the view. */
+        /**
+         * In single-panel mode there is nowhere to move focus, so "other panel" swaps the view.
+         */
         void swapSinglePanel() {
             mySingleShowsLeft = !mySingleShowsLeft;
             if (currentLayout() == PanelLayout.SINGLE) {
@@ -216,20 +199,5 @@ public class TurtleCommanderToolWindowFactory implements ToolWindowFactory, Dumb
     private static Path resolveInitialPath(Project project) {
         String basePath = project.getBasePath();
         return basePath != null ? Path.of(basePath) : Path.of(System.getProperty("user.home"));
-    }
-
-    @Override
-    public ToolWindowAnchor getAnchor() {
-        return ToolWindowAnchor.BOTTOM;
-    }
-
-    @Override
-    public Image getIcon() {
-        return PlatformIconGroup.toolwindowsToolwindowproject();
-    }
-
-    @Override
-    public LocalizeValue getDisplayName() {
-        return LocalizeValue.localizeTODO("Turtle Commander");
     }
 }

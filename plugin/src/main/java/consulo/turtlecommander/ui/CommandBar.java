@@ -3,6 +3,8 @@ package consulo.turtlecommander.ui;
 import consulo.dataContext.DataManager;
 import consulo.disposer.Disposable;
 import consulo.disposer.Disposer;
+import consulo.fileEditor.FileEditorManager;
+import consulo.project.Project;
 import consulo.turtlecommander.settings.ComponentStyle;
 import consulo.turtlecommander.settings.TurtleCommanderSettings;
 import consulo.ui.ex.action.ActionManager;
@@ -13,14 +15,10 @@ import consulo.ui.ex.action.KeyboardShortcut;
 import consulo.ui.ex.action.Shortcut;
 import consulo.ui.ex.action.util.ShortcutUtil;
 import consulo.ui.ex.toolWindow.ToolWindow;
+import consulo.virtualFileSystem.VirtualFile;
 import org.jspecify.annotations.Nullable;
 
-import javax.swing.Box;
-import javax.swing.BoxLayout;
-import javax.swing.JButton;
-import javax.swing.JPanel;
-import javax.swing.KeyStroke;
-import javax.swing.SwingUtilities;
+import javax.swing.*;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Font;
@@ -53,8 +51,8 @@ public class CommandBar extends JPanel {
     /** Look-and-feel values captured before styling, so clearing a style restores the default. */
     private @Nullable Color myDefaultBackground;
 
-    public CommandBar(FileManagerPanel leftPanel, FileManagerPanel rightPanel, ToolWindow toolWindow,
-                      Disposable disposable) {
+    public CommandBar(FileManagerPanel leftPanel, FileManagerPanel rightPanel, Project project, VirtualFile file,
+                      JPanel contentPanel, Disposable disposable) {
         setLayout(new BoxLayout(this, BoxLayout.X_AXIS));
         myDefaultBackground = getBackground();
 
@@ -94,12 +92,12 @@ public class CommandBar extends JPanel {
             FileTabOperationUtil::performCreateFile);
         addTabButton("TurtleCommander.Rename", "Rename", leftPanel, rightPanel,
             FileTabOperationUtil::startRename);
-        addButton("TurtleCommander.Quit", "Quit", toolWindow::hide);
+        addButton("TurtleCommander.Quit", "Quit", () -> FileEditorManager.getInstance(project).closeFile(file));
 
         TurtleCommanderSettings.State settings = TurtleCommanderSettings.getInstance().getState();
         applyStyle(settings.styles.commandBarStyle, settings.styles.commandButtonStyle);
         updateBar(0);
-        installModifierWatch(toolWindow, disposable);
+        installModifierWatch(contentPanel, disposable);
     }
 
     /**
@@ -210,10 +208,10 @@ public class CommandBar extends JPanel {
     }
 
     /**
-     * Swaps the row while a modifier is held, but only when focus is inside the tool window — so
+     * Swaps the row while a modifier is held, but only when focus is inside the editor — so
      * holding Ctrl in the editor doesn't flip the bar's labels.
      */
-    private void installModifierWatch(ToolWindow toolWindow, Disposable disposable) {
+    private void installModifierWatch(JComponent contentPanel, Disposable disposable) {
         KeyEventDispatcher dispatcher = e -> {
             if (!isShowing() || (e.getID() != KeyEvent.KEY_PRESSED && e.getID() != KeyEvent.KEY_RELEASED)) {
                 return false;
@@ -223,7 +221,7 @@ public class CommandBar extends JPanel {
                     Component focusOwner =
                         KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
                     boolean insideToolWindow = focusOwner != null
-                        && SwingUtilities.isDescendingFrom(focusOwner, toolWindow.getComponent());
+                        && SwingUtilities.isDescendingFrom(focusOwner, contentPanel);
                     applyModifier(insideToolWindow ? e.getModifiersEx() & MODIFIER_MASK : 0);
                 }
                 default -> {
