@@ -20,6 +20,7 @@ import consulo.ui.ex.awt.ComboBox;
 import consulo.ui.ex.awt.JBLabel;
 import consulo.ui.ex.awt.JBTextField;
 import consulo.ui.ex.awt.event.DocumentAdapter;
+import consulo.ui.ex.awtUnsafe.TargetAWT;
 import org.jspecify.annotations.Nullable;
 
 import javax.swing.Box;
@@ -94,7 +95,7 @@ public class TurtleCommanderConfigurable implements SearchableConfigurable, Appl
 
     @RequiredUIAccess
     @Override
-    public JComponent createComponent(@Nullable Disposable parentDisposable) {
+    public consulo.ui.Component createUIComponent(@Nullable Disposable parentDisposable) {
         TurtleCommanderSettings.State settings = TurtleCommanderSettings.getInstance().getState();
 
         myHighlightingCheckBox =
@@ -142,7 +143,7 @@ public class TurtleCommanderConfigurable implements SearchableConfigurable, Appl
         myColorRulesEditor = new ColorRulesEditor(null);
         myColorRulesEditor.resetFrom(settings);
 
-        return buildRoot();
+        return TargetAWT.wrap(buildRoot());
     }
 
     private void buildDateTimeFields(TurtleCommanderSettings.State settings) {
