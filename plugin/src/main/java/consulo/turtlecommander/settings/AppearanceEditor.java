@@ -1,14 +1,13 @@
 package consulo.turtlecommander.settings;
 
 import consulo.fileChooser.FileChooserDescriptor;
-import consulo.fileChooser.IdeaFileChooser;
+import consulo.fileChooser.FileChooserFactory;
 import consulo.turtlecommander.dialog.InputDialog;
 import consulo.ui.ex.awt.ComboBox;
 import consulo.ui.ex.awt.JBLabel;
 import consulo.ui.ex.awt.JBList;
 import consulo.ui.ex.awt.JBUI;
 import consulo.ui.ex.awt.Messages;
-import consulo.virtualFileSystem.VirtualFile;
 import org.jspecify.annotations.Nullable;
 
 import javax.swing.BorderFactory;
@@ -329,54 +328,56 @@ public class AppearanceEditor {
         FileChooserDescriptor descriptor = new FileChooserDescriptor(false, true, false, false, false, false);
         descriptor.setTitle("Export Theme");
         descriptor.setDescription("Choose the directory to write the theme file into");
-        VirtualFile directory = IdeaFileChooser.chooseFile(descriptor, null, null);
-        if (directory == null) {
-            return;
-        }
-        Path target = Path.of(directory.getPath()).resolve(theme.name().replace(' ', '_') + ".tctheme");
-        try {
-            Files.writeString(target, ThemeManager.exportTheme(theme), StandardCharsets.UTF_8);
-        }
-        catch (IOException e) {
-            Messages.showWarningDialog("Failed to write " + target + ": " + e.getMessage(), "Export Theme");
-        }
+        FileChooserFactory.getInstance().newBuilder(descriptor).showSingle().whenComplete((directory, error) -> {
+            if (directory == null) {
+                return;
+            }
+            Path target = directory.resolve(theme.name().replace(' ', '_') + ".tctheme");
+            try {
+                Files.writeString(target, ThemeManager.exportTheme(theme), StandardCharsets.UTF_8);
+            }
+            catch (IOException e) {
+                Messages.showWarningDialog("Failed to write " + target + ": " + e.getMessage(), "Export Theme");
+            }
+        });
     }
 
     private void importThemeFromFile() {
         FileChooserDescriptor descriptor = new FileChooserDescriptor(true, false, false, false, false, false);
         descriptor.setTitle("Import Theme");
         descriptor.setDescription("Select a Turtle Commander theme file");
-        VirtualFile chosen = IdeaFileChooser.chooseFile(descriptor, null, null);
-        if (chosen == null) {
-            return;
-        }
+        FileChooserFactory.getInstance().newBuilder(descriptor).showSingle().whenComplete((chosen, error) -> {
+            if (chosen == null) {
+                return;
+            }
 
-        Theme theme;
-        try {
-            theme = ThemeManager.importTheme(
-                Files.readString(Path.of(chosen.getPath()), StandardCharsets.UTF_8));
-        }
-        catch (IOException e) {
-            Messages.showWarningDialog("Failed to read " + chosen.getPath() + ": " + e.getMessage(),
-                "Import Theme");
-            return;
-        }
-        if (theme == null) {
-            Messages.showWarningDialog("Invalid theme file.", "Import Theme");
-            return;
-        }
+            Theme theme;
+            try {
+                theme = ThemeManager.importTheme(
+                    Files.readString(chosen, StandardCharsets.UTF_8));
+            }
+            catch (IOException e) {
+                Messages.showWarningDialog("Failed to read " + chosen + ": " + e.getMessage(),
+                    "Import Theme");
+                return;
+            }
+            if (theme == null) {
+                Messages.showWarningDialog("Invalid theme file.", "Import Theme");
+                return;
+            }
 
-        TurtleCommanderSettings.State state = TurtleCommanderSettings.getInstance().getState();
-        boolean overwrite = false;
-        if (ThemeManager.getAllThemes(state).stream().anyMatch(t -> t.name().equals(theme.name()))) {
-            // Replacing loses the existing theme, so ask; declining imports under a unique name.
-            overwrite = Messages.showYesNoDialog(
-                "A theme named \"" + theme.name() + "\" already exists. Replace it?",
-                "Import Theme", null) == Messages.YES;
-        }
-        ThemeManager.ImportOutcome outcome = ThemeManager.importThemeToState(state, theme, overwrite);
-        rebuildThemeCombo(state);
-        selectThemeByName(outcome.name());
+            TurtleCommanderSettings.State state = TurtleCommanderSettings.getInstance().getState();
+            boolean overwrite = false;
+            if (ThemeManager.getAllThemes(state).stream().anyMatch(t -> t.name().equals(theme.name()))) {
+                // Replacing loses the existing theme, so ask; declining imports under a unique name.
+                overwrite = Messages.showYesNoDialog(
+                    "A theme named \"" + theme.name() + "\" already exists. Replace it?",
+                    "Import Theme", null) == Messages.YES;
+            }
+            ThemeManager.ImportOutcome outcome = ThemeManager.importThemeToState(state, theme, overwrite);
+            rebuildThemeCombo(state);
+            selectThemeByName(outcome.name());
+        });
     }
 
     private static String renameFailureMessage(String oldName, String newName,

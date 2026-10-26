@@ -1,7 +1,7 @@
 package consulo.turtlecommander.settings;
 
 import consulo.fileChooser.FileChooserDescriptor;
-import consulo.fileChooser.IdeaFileChooser;
+import consulo.fileChooser.FileChooserFactory;
 import consulo.project.Project;
 import consulo.turtlecommander.dialog.InputDialog;
 import consulo.ui.ex.awt.ComboBox;
@@ -11,7 +11,6 @@ import consulo.ui.ex.awt.Messages;
 import consulo.ui.ex.awt.table.JBTable;
 import consulo.ui.ex.awtUnsafe.TargetAWT;
 import consulo.ui.image.Image;
-import consulo.virtualFileSystem.VirtualFile;
 import org.jspecify.annotations.Nullable;
 
 import javax.swing.Box;
@@ -326,59 +325,61 @@ public class ColorRulesEditor {
         FileChooserDescriptor descriptor = new FileChooserDescriptor(false, true, false, false, false, false);
         descriptor.setTitle("Export Rules");
         descriptor.setDescription("Choose the directory to write the .tcrules file into");
-        VirtualFile directory = IdeaFileChooser.chooseFile(descriptor, myProject, null);
-        if (directory == null) {
-            return;
-        }
+        FileChooserFactory.getInstance().newBuilder(descriptor).project(myProject).showSingle().whenComplete((directory, error) -> {
+            if (directory == null) {
+                return;
+            }
 
-        String text = ColorRulesIO.export(new ColorRulesConfig(name, List.copyOf(myRules)));
-        Path target = Path.of(directory.getPath()).resolve(name.replace(' ', '_') + ".tcrules");
-        try {
-            Files.writeString(target, text, StandardCharsets.UTF_8);
-        }
-        catch (IOException e) {
-            Messages.showWarningDialog("Failed to write " + target + ": " + e.getMessage(), "Export Rules");
-        }
+            String text = ColorRulesIO.export(new ColorRulesConfig(name, List.copyOf(myRules)));
+            Path target = directory.resolve(name.replace(' ', '_') + ".tcrules");
+            try {
+                Files.writeString(target, text, StandardCharsets.UTF_8);
+            }
+            catch (IOException e) {
+                Messages.showWarningDialog("Failed to write " + target + ": " + e.getMessage(), "Export Rules");
+            }
+        });
     }
 
     private void importRules() {
         FileChooserDescriptor descriptor = new FileChooserDescriptor(true, false, false, false, false, false);
         descriptor.setTitle("Import Rules");
         descriptor.setDescription("Select a Turtle Commander rules file");
-        VirtualFile chosen = IdeaFileChooser.chooseFile(descriptor, myProject, null);
-        if (chosen == null) {
-            return;
-        }
+        FileChooserFactory.getInstance().newBuilder(descriptor).project(myProject).showSingle().whenComplete((chosen, error) -> {
+            if (chosen == null) {
+                return;
+            }
 
-        ColorRulesConfig config;
-        try {
-            config = ColorRulesIO.parse(Files.readString(Path.of(chosen.getPath()), StandardCharsets.UTF_8));
-        }
-        catch (IOException e) {
-            Messages.showWarningDialog("Failed to read " + chosen.getPath() + ": " + e.getMessage(),
-                "Import Rules");
-            return;
-        }
-        if (config == null) {
-            Messages.showWarningDialog("Invalid rules file.", "Import Rules");
-            return;
-        }
+            ColorRulesConfig config;
+            try {
+                config = ColorRulesIO.parse(Files.readString(chosen, StandardCharsets.UTF_8));
+            }
+            catch (IOException e) {
+                Messages.showWarningDialog("Failed to read " + chosen + ": " + e.getMessage(),
+                    "Import Rules");
+                return;
+            }
+            if (config == null) {
+                Messages.showWarningDialog("Invalid rules file.", "Import Rules");
+                return;
+            }
 
-        int choice = Messages.showYesNoCancelDialog(
-            "Import \"" + config.name() + "\" (" + config.rules().size() + " rules)?\n\n"
-                + "Yes = replace current rules\nNo = append to current rules",
-            "Import Rules", "Replace", "Append", "Cancel", null);
-        if (choice == Messages.CANCEL) {
-            return;
-        }
-        if (choice == Messages.YES) {
-            myRules.clear();
-        }
-        // Fresh ids, so an imported rule can never collide with — or silently overwrite — an existing one.
-        for (ColorRule rule : config.rules()) {
-            myRules.add(ColorRuleDefaults.withId(rule, UUID.randomUUID().toString()));
-        }
-        resortAndSelect(null);
+            int choice = Messages.showYesNoCancelDialog(
+                "Import \"" + config.name() + "\" (" + config.rules().size() + " rules)?\n\n"
+                    + "Yes = replace current rules\nNo = append to current rules",
+                "Import Rules", "Replace", "Append", "Cancel", null);
+            if (choice == Messages.CANCEL) {
+                return;
+            }
+            if (choice == Messages.YES) {
+                myRules.clear();
+            }
+            // Fresh ids, so an imported rule can never collide with — or silently overwrite — an existing one.
+            for (ColorRule rule : config.rules()) {
+                myRules.add(ColorRuleDefaults.withId(rule, UUID.randomUUID().toString()));
+            }
+            resortAndSelect(null);
+        });
     }
 
     // --- Table -------------------------------------------------------------------------------------

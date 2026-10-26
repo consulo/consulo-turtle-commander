@@ -2,7 +2,7 @@ package consulo.turtlecommander.settings;
 
 import consulo.fileChooser.FileChooserDescriptor;
 import consulo.fileChooser.FileChooserDescriptorFactory;
-import consulo.fileChooser.IdeaFileChooser;
+import consulo.fileChooser.FileChooserFactory;
 import consulo.project.Project;
 import consulo.project.ProjectManager;
 import consulo.turtlecommander.service.FavoriteEntry;
@@ -10,7 +10,7 @@ import consulo.turtlecommander.service.FileManagerStateService;
 import consulo.turtlecommander.ui.FavoriteIcons;
 import consulo.ui.ex.awt.JBList;
 import consulo.ui.ex.awt.SimpleColoredComponent;
-import consulo.virtualFileSystem.VirtualFile;
+import consulo.util.io.FileUtil;
 import org.jspecify.annotations.Nullable;
 
 import javax.swing.BorderFactory;
@@ -108,10 +108,11 @@ public class FavoritesEditor {
         descriptor.setTitle("Add Favorite");
         descriptor.setDescription("Select a directory to add to favorites");
 
-        VirtualFile chosen = IdeaFileChooser.chooseFile(descriptor, currentProject(), null);
-        if (chosen != null) {
-            myListModel.addElement(new FavoriteEntry(chosen.getPath(), "", ""));
-        }
+        FileChooserFactory.getInstance().newBuilder(descriptor).project(currentProject()).showSingle().whenComplete((chosen, error) -> {
+            if (chosen != null) {
+                myListModel.addElement(new FavoriteEntry(FileUtil.toSystemIndependentName(chosen.toString()), "", ""));
+            }
+        });
     }
 
     private void move(int offset) {
