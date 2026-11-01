@@ -2,8 +2,7 @@ package consulo.turtlecommander.action;
 
 import consulo.annotation.component.ActionImpl;
 import consulo.localize.LocalizeValue;
-import consulo.turtlecommander.ui.FileTab;
-import consulo.turtlecommander.ui.FileTabSelectionUtil;
+import consulo.turtlecommander.ui.FileManagerTab;
 import consulo.ui.ex.action.AnActionEvent;
 
 /** Puts the selection in the copy buffer, marked for moving. */
@@ -16,16 +15,16 @@ public class ContextCutAction extends EdtAction {
 
     @Override
     public void update(AnActionEvent e) {
-        FileTab tab = ActionTargets.resolveFileContextTab(e);
-        e.getPresentation().setEnabled(tab != null && !FileTabSelectionUtil.getSelectedEntries(tab).isEmpty());
+        FileManagerTab tab = ActionTargets.resolveFileContextTab(e);
+        e.getPresentation().setEnabled(tab != null && !tab.getSelectedEntries().isEmpty());
     }
 
     @Override
     public void actionPerformed(AnActionEvent e) {
-        FileTab tab = ActionTargets.resolveFileContextTab(e);
+        FileManagerTab tab = ActionTargets.resolveFileContextTab(e);
         if (tab != null) {
             FileCopyBuffer.setCut(true);
-            FileCopyBuffer.setEntries(FileTabSelectionUtil.getSelectedEntries(tab));
+            FileCopyBuffer.setEntries(tab.getSelectedEntries());
         }
     }
 }

@@ -1,41 +1,39 @@
 package consulo.turtlecommander.settings;
 
+import consulo.application.Application;
 import consulo.fileChooser.FileChooserDescriptor;
 import consulo.fileChooser.FileChooserFactory;
+import consulo.localize.LocalizeValue;
+import consulo.platform.base.icon.PlatformIconGroup;
 import consulo.project.Project;
-import consulo.turtlecommander.dialog.InputDialog;
-import consulo.ui.ex.awt.ComboBox;
-import consulo.ui.ex.awt.JBLabel;
-import consulo.ui.ex.awt.JBUI;
-import consulo.ui.ex.awt.Messages;
-import consulo.ui.ex.awt.table.JBTable;
-import consulo.ui.ex.awtUnsafe.TargetAWT;
+import consulo.ui.CheckBox;
+import consulo.ui.ComboBox;
+import consulo.ui.Component;
+import consulo.ui.ComponentItemRenderer;
+import consulo.ui.HorizontalAlignment;
+import consulo.ui.InputBoxBuilder;
+import consulo.ui.Label;
+import consulo.ui.MessageBoxBuilder;
+import consulo.ui.MessageBoxes;
+import consulo.ui.MessageButtonRole;
+import consulo.ui.Space;
+import consulo.ui.Table;
+import consulo.ui.TableItemEditor;
+import consulo.ui.TextItemPresentation;
+import consulo.ui.UIAccess;
+import consulo.ui.ValueComponent;
+import consulo.ui.annotation.RequiredUIAccess;
+import consulo.ui.ex.dialog.DialogService;
 import consulo.ui.image.Image;
+import consulo.ui.layout.DockLayout;
+import consulo.ui.layout.HorizontalLayout;
+import consulo.ui.layout.LabeledLayout;
+import consulo.ui.layout.ScrollableLayout;
+import consulo.ui.model.FlatDataModel;
+import consulo.ui.model.MutableFlatDataModel;
 import org.jspecify.annotations.Nullable;
 
-import javax.swing.Box;
-import javax.swing.BorderFactory;
-import javax.swing.BoxLayout;
-import javax.swing.DefaultComboBoxModel;
-import javax.swing.DefaultListCellRenderer;
-import javax.swing.JButton;
-import javax.swing.JCheckBox;
-import javax.swing.JComponent;
-import javax.swing.JList;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.JTable;
-import javax.swing.ListSelectionModel;
-import javax.swing.table.AbstractTableModel;
-import javax.swing.table.DefaultTableCellRenderer;
-import javax.swing.table.TableColumnModel;
-import java.awt.BorderLayout;
 import java.awt.Color;
-import java.awt.Component;
-import java.awt.Dimension;
-import java.awt.FlowLayout;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -43,8 +41,10 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.StringJoiner;
 import java.util.UUID;
+import java.util.function.Function;
 
 /**
  * The rule table and its toolbar, embedded in the settings page.
@@ -53,23 +53,17 @@ import java.util.UUID;
  * columns: edits stay local until {@link #applyTo} writes them back.
  */
 public class ColorRulesEditor {
-    private static final int COL_ACTIVE = 0;
-    private static final int COL_PRIORITY = 1;
-    private static final int COL_NAME = 2;
-    private static final int COL_COLOR = 3;
-    private static final int COL_BG = 4;
-    private static final int COL_DOT = 5;
-    private static final int COL_ICON = 6;
-    private static final int COL_MATCHERS = 7;
-    private static final int COLUMN_COUNT = 8;
-
     /**
      * Display and evaluation order: highest priority first — the winner in WINNER mode, the top
      * overlay in LAYERED — with ties broken by name so the order is stable across restarts.
      */
     private static final Comparator<ColorRule> BY_PRIORITY =
         Comparator.comparingInt(ColorRule::priority).reversed()
-            .thenComparing(rule -> rule.name().toLowerCase(java.util.Locale.ROOT));
+            .thenComparing(rule -> rule.name().toLowerCase(Locale.ROOT));
+
+    private enum ImportChoice {
+        REPLACE, APPEND, CANCEL
+    }
 
     private final @Nullable Project myProject;
 
@@ -77,61 +71,45 @@ public class ColorRulesEditor {
     private List<ColorRule> mySavedSnapshot = List.of();
     private ColorizationMode mySavedMode = ColorizationMode.WINNER;
 
-    private final RulesTableModel myTableModel = new RulesTableModel();
-    private final JBTable myTable = new JBTable(myTableModel);
-    private final ComboBox<ColorizationMode> myModeCombo =
-        new ComboBox<>(new DefaultComboBoxModel<>(ColorizationMode.values()));
-    private final JPanel myPanel = new JPanel(new BorderLayout(4, 4));
+    private final MutableFlatDataModel<ColorRule> myTableModel = FlatDataModel.of(List.of());
+    private final Table<ColorRule> myTable = Table.create(myTableModel);
+    private final ComboBox<ColorizationMode> myModeCombo = ComboBox.create(ColorizationMode.values());
+    private final Component myRoot;
 
+    @RequiredUIAccess
     public ColorRulesEditor(@Nullable Project project) {
         myProject = project;
 
-        myTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        // Whole-row selection: the highlight should span the rule, not a single cell.
-        myTable.setRowSelectionAllowed(true);
-        myTable.setColumnSelectionAllowed(false);
-        myTable.setRowHeight(JBUI.scale(24));
-        myTable.getTableHeader().setReorderingAllowed(false);
-        myTable.setAutoResizeMode(JTable.AUTO_RESIZE_LAST_COLUMN);
+        myModeCombo.setTextRenderer(mode -> LocalizeValue.localizeTODO(mode == ColorizationMode.LAYERED
+            ? "Layered (overlay by priority)"
+            : "Winner takes all (highest priority)"));
+        myModeCombo.setValue(ColorizationMode.WINNER);
         configureColumns();
-
-        myModeCombo.setRenderer(new ModeRenderer());
-        myTable.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                toggleActiveIfOnCheckBox(e);
-            }
-
-            @Override
-            public void mousePressed(MouseEvent e) {
-                if (e.getClickCount() == 2 && myTable.rowAtPoint(e.getPoint()) >= 0) {
-                    editSelected();
-                }
+        myTable.addDoubleClickListener(event -> {
+            if (event.getValue() != null) {
+                editSelected();
             }
         });
 
-        myPanel.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-        myPanel.setBorder(BorderFactory.createTitledBorder("File colors and icons"));
-        myPanel.add(buildToolbar(), BorderLayout.NORTH);
-
-        JScrollPane scrollPane = new JScrollPane(myTable);
-        scrollPane.setPreferredSize(new Dimension(Integer.MAX_VALUE, JBUI.scale(240)));
-        myPanel.add(scrollPane, BorderLayout.CENTER);
-        myPanel.add(buildRightButtons(), BorderLayout.EAST);
+        DockLayout content = DockLayout.create(Space.SMALL);
+        content.top(buildToolbar());
+        content.center(ScrollableLayout.create(myTable));
+        myRoot = LabeledLayout.create(LocalizeValue.localizeTODO("File colors and icons"), content);
     }
 
-    public JPanel getPanel() {
-        return myPanel;
+    public Component getComponent() {
+        return myRoot;
     }
 
+    @RequiredUIAccess
     public void resetFrom(TurtleCommanderSettings.State state) {
         myRules.clear();
         myRules.addAll(ColorRuleManager.getAllRules(state));
         myRules.sort(BY_PRIORITY);
         mySavedSnapshot = List.copyOf(myRules);
         mySavedMode = ColorRuleManager.getMode(state);
-        myModeCombo.setSelectedItem(mySavedMode);
-        myTableModel.fireTableDataChanged();
+        myModeCombo.setValue(mySavedMode);
+        myTableModel.replaceAll(myRules);
     }
 
     public void applyTo(TurtleCommanderSettings.State state) {
@@ -150,112 +128,122 @@ public class ColorRulesEditor {
     }
 
     private ColorizationMode selectedMode() {
-        Object selected = myModeCombo.getSelectedItem();
-        return selected instanceof ColorizationMode mode ? mode : ColorizationMode.WINNER;
+        ColorizationMode mode = myModeCombo.getValue();
+        return mode != null ? mode : ColorizationMode.WINNER;
     }
 
-    // --- Toolbar and buttons ---------------------------------------------------------------------
+    // --- Toolbar ---------------------------------------------------------------------------------
 
-    private JComponent buildToolbar() {
-        JButton exportButton = new JButton("Export...");
-        exportButton.setToolTipText("Export current rules to a .tcrules file");
-        exportButton.addActionListener(e -> exportCurrentRules());
+    @RequiredUIAccess
+    private Component buildToolbar() {
+        HorizontalLayout buttons = HorizontalLayout.create(Space.X_SMALL);
+        buttons.add(ColorRuleEditDialogDescriptor.toolbarButton("Add...", PlatformIconGroup.generalAdd(), this::addRule));
+        buttons.add(ColorRuleEditDialogDescriptor.toolbarButton("Edit...", PlatformIconGroup.actionsEdit(), this::editSelected));
+        buttons.add(ColorRuleEditDialogDescriptor.toolbarButton("Duplicate", PlatformIconGroup.actionsCopy(), this::duplicateSelected));
+        buttons.add(ColorRuleEditDialogDescriptor.toolbarButton("Delete", PlatformIconGroup.generalRemove(), this::deleteSelected));
+        buttons.add(ColorRuleEditDialogDescriptor.toolbarButton("Raise priority (move up)", PlatformIconGroup.actionsMoveup(),
+            () -> moveSelected(-1)));
+        buttons.add(ColorRuleEditDialogDescriptor.toolbarButton("Lower priority (move down)", PlatformIconGroup.actionsMovedown(),
+            () -> moveSelected(1)));
+        buttons.add(ColorRuleEditDialogDescriptor.toolbarButton("Import rules from a .tcrules file...",
+            PlatformIconGroup.actionsImport(), this::importRules));
+        buttons.add(ColorRuleEditDialogDescriptor.toolbarButton("Export current rules to a .tcrules file...",
+            PlatformIconGroup.actionsExport(), this::exportCurrentRules));
+        buttons.add(ColorRuleEditDialogDescriptor.toolbarButton("Reset to defaults", PlatformIconGroup.generalReset(),
+            this::resetToDefaults));
 
-        JButton importButton = new JButton("Import...");
-        importButton.setToolTipText("Import rules from a .tcrules file");
-        importButton.addActionListener(e -> importRules());
+        HorizontalLayout mode = HorizontalLayout.create(Space.SMALL);
+        mode.add(Label.create(LocalizeValue.localizeTODO("Mode:")));
+        mode.add(myModeCombo);
 
-        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        row.add(new JBLabel("Mode:"));
-        row.add(myModeCombo);
-        row.add(Box.createHorizontalStrut(12));
-        row.add(exportButton);
-        row.add(importButton);
-        return row;
-    }
-
-    private JComponent buildRightButtons() {
-        JPanel column = new JPanel();
-        column.setLayout(new BoxLayout(column, BoxLayout.Y_AXIS));
-
-        addButton(column, "Add...", null, this::addRule);
-        addButton(column, "Edit...", null, this::editSelected);
-        addButton(column, "Duplicate", null, this::duplicateSelected);
-        addButton(column, "Delete", null, this::deleteSelected);
-        addButton(column, "Up", "Raise priority (move up)", () -> moveSelected(-1));
-        addButton(column, "Down", "Lower priority (move down)", () -> moveSelected(1));
-        addButton(column, "Reset to defaults", null, this::resetToDefaults);
-        return column;
-    }
-
-    private static void addButton(JPanel column, String text, @Nullable String tooltip, Runnable action) {
-        JButton button = new JButton(text);
-        button.setToolTipText(tooltip);
-        button.setAlignmentX(Component.LEFT_ALIGNMENT);
-        button.setMaximumSize(new Dimension(Integer.MAX_VALUE, button.getPreferredSize().height));
-        button.addActionListener(e -> action.run());
-        column.add(button);
-        column.add(Box.createVerticalStrut(4));
+        return DockLayout.create(Space.MEDIUM).left(buttons).right(mode);
     }
 
     // --- Rule mutations ---------------------------------------------------------------------------
 
+    @RequiredUIAccess
     private void addRule() {
-        ColorRuleEditDialog dialog = new ColorRuleEditDialog(myProject, null);
-        if (dialog.showAndGet() && dialog.getResult() != null) {
-            ColorRule rule = dialog.getResult();
-            myRules.add(rule);
-            resortAndSelect(rule.id());
-        }
+        ColorRuleEditDialogDescriptor descriptor = new ColorRuleEditDialogDescriptor(null);
+        showRuleDialog(descriptor, () -> {
+            ColorRule rule = descriptor.getResult();
+            if (rule != null) {
+                myRules.add(rule);
+                resortAndSelect(rule.id());
+            }
+        });
     }
 
+    @RequiredUIAccess
     private void editSelected() {
-        int index = myTable.getSelectedRow();
-        if (index < 0) {
+        ColorRule selected = myTable.getSelectedItem();
+        if (selected == null) {
             return;
         }
-        ColorRuleEditDialog dialog = new ColorRuleEditDialog(myProject, myRules.get(index));
-        if (dialog.showAndGet() && dialog.getResult() != null) {
-            ColorRule rule = dialog.getResult();
-            myRules.set(index, rule);
-            resortAndSelect(rule.id());
-        }
+        ColorRuleEditDialogDescriptor descriptor = new ColorRuleEditDialogDescriptor(selected);
+        showRuleDialog(descriptor, () -> {
+            ColorRule rule = descriptor.getResult();
+            // looked up again: the list may have changed while the dialog was open
+            int index = indexOfId(selected.id());
+            if (rule != null && index >= 0) {
+                myRules.set(index, rule);
+                resortAndSelect(rule.id());
+            }
+        });
     }
 
+    /** A cancelled dialog completes exceptionally and changes nothing. */
+    @RequiredUIAccess
+    private void showRuleDialog(ColorRuleEditDialogDescriptor descriptor, Runnable onOk) {
+        Application.get().getInstance(DialogService.class).build(myRoot, descriptor).showAsync()
+            .whenComplete((value, error) -> {
+                if (error == null) {
+                    onOk.run();
+                }
+            });
+    }
+
+    @RequiredUIAccess
     private void duplicateSelected() {
-        int index = myTable.getSelectedRow();
-        if (index < 0) {
+        ColorRule source = myTable.getSelectedItem();
+        if (source == null) {
             return;
         }
-        ColorRule source = myRules.get(index);
         ColorRule copy = new ColorRule(UUID.randomUUID().toString(), source.name() + " (copy)",
             source.priority(), source.active(), source.combinator(), source.matchers(), source.style());
         myRules.add(copy);
         resortAndSelect(copy.id());
     }
 
+    @RequiredUIAccess
     private void deleteSelected() {
-        int index = myTable.getSelectedRow();
-        if (index < 0) {
+        ColorRule rule = myTable.getSelectedItem();
+        if (rule == null) {
             return;
         }
-        ColorRule rule = myRules.get(index);
-        if (Messages.showYesNoDialog("Delete rule \"" + rule.name() + "\"?", "Delete Rule", null)
-            != Messages.YES) {
-            return;
-        }
-        myRules.remove(index);
-        myTableModel.fireTableDataChanged();
+        MessageBoxes.yesNo()
+            .title(LocalizeValue.localizeTODO("Delete Rule"))
+            .text(LocalizeValue.localizeTODO("Delete rule \"" + rule.name() + "\"?"))
+            .showAsync(myRoot)
+            .whenComplete((yes, error) -> {
+                if (error == null && Boolean.TRUE.equals(yes) && myRules.removeIf(r -> r.id().equals(rule.id()))) {
+                    resortAndSelect(null);
+                }
+            });
     }
 
+    @RequiredUIAccess
     private void resetToDefaults() {
-        if (Messages.showYesNoDialog("Replace all rules with the built-in defaults?", "Reset Rules", null)
-            != Messages.YES) {
-            return;
-        }
-        myRules.clear();
-        myRules.addAll(ColorRuleDefaults.builtinRules());
-        resortAndSelect(null);
+        MessageBoxes.yesNo()
+            .title(LocalizeValue.localizeTODO("Reset Rules"))
+            .text(LocalizeValue.localizeTODO("Replace all rules with the built-in defaults?"))
+            .showAsync(myRoot)
+            .whenComplete((yes, error) -> {
+                if (error == null && Boolean.TRUE.equals(yes)) {
+                    myRules.clear();
+                    myRules.addAll(ColorRuleDefaults.builtinRules());
+                    resortAndSelect(null);
+                }
+            });
     }
 
     /**
@@ -263,13 +251,14 @@ public class ColorRulesEditor {
      * past the neighbour's rather than nudged by one, so a single click always reorders even when
      * priorities are spaced far apart.
      */
+    @RequiredUIAccess
     private void moveSelected(int direction) {
-        int index = myTable.getSelectedRow();
+        ColorRule current = myTable.getSelectedItem();
+        int index = current != null ? indexOfId(current.id()) : -1;
         int target = index + direction;
-        if (index < 0 || target < 0 || target >= myRules.size()) {
+        if (current == null || index < 0 || target < 0 || target >= myRules.size()) {
             return;
         }
-        ColorRule current = myRules.get(index);
         ColorRule neighbour = myRules.get(target);
         int newPriority = direction < 0 ? neighbour.priority() + 1 : neighbour.priority() - 1;
         myRules.set(index, new ColorRule(current.id(), current.name(), newPriority, current.active(),
@@ -277,50 +266,72 @@ public class ColorRulesEditor {
         resortAndSelect(current.id());
     }
 
-    private void toggleActiveIfOnCheckBox(MouseEvent e) {
-        if (myTable.columnAtPoint(e.getPoint()) != COL_ACTIVE) {
+    @RequiredUIAccess
+    private void setActive(ColorRule rule, boolean active) {
+        int index = indexOfId(rule.id());
+        if (index < 0 || myRules.get(index).active() == active) {
             return;
         }
-        int row = myTable.rowAtPoint(e.getPoint());
-        if (row < 0) {
-            return;
-        }
-        ColorRule current = myRules.get(row);
-        myRules.set(row, new ColorRule(current.id(), current.name(), current.priority(), !current.active(),
+        ColorRule current = myRules.get(index);
+        myRules.set(index, new ColorRule(current.id(), current.name(), current.priority(), active,
             current.combinator(), current.matchers(), current.style()));
-        myTableModel.fireTableRowsUpdated(row, row);
+        resortAndSelect(current.id());
+    }
+
+    private int indexOfId(String id) {
+        for (int i = 0; i < myRules.size(); i++) {
+            if (myRules.get(i).id().equals(id)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /**
      * Restores the priority ordering after a mutation and re-selects the rule by id — its row moves
      * when its priority changes. The list stays sorted so the table always shows evaluation order.
      */
+    @RequiredUIAccess
     private void resortAndSelect(@Nullable String selectId) {
         myRules.sort(BY_PRIORITY);
-        myTableModel.fireTableDataChanged();
+        myTableModel.replaceAll(myRules);
         if (selectId == null) {
             return;
         }
-        for (int i = 0; i < myRules.size(); i++) {
-            if (myRules.get(i).id().equals(selectId)) {
-                myTable.setRowSelectionInterval(i, i);
-                return;
-            }
+        int index = indexOfId(selectId);
+        if (index >= 0) {
+            ColorRule rule = myRules.get(index);
+            myTable.select(rule);
+            myTable.scrollTo(rule);
         }
     }
 
     // --- Import and export -------------------------------------------------------------------------
 
+    @RequiredUIAccess
     private void exportCurrentRules() {
-        InputDialog dialog = new InputDialog(myProject, "Export Rules", "Config name:", "");
-        if (!dialog.showAndGet()) {
-            return;
-        }
-        String name = dialog.getInputValue();
-        if (name.isBlank()) {
-            Messages.showWarningDialog("Config name cannot be empty.", "Export Rules");
-            return;
-        }
+        InputBoxBuilder.text()
+            .title(LocalizeValue.localizeTODO("Export Rules"))
+            .text(LocalizeValue.localizeTODO("Config name:"))
+            .value("")
+            .showAsync()
+            .whenComplete((name, error) -> {
+                if (error != null || name == null) {
+                    return;
+                }
+                if (name.isBlank()) {
+                    warn("Config name cannot be empty.", "Export Rules");
+                    return;
+                }
+                chooseExportDirectory(name);
+            });
+    }
+
+    @RequiredUIAccess
+    private void chooseExportDirectory(String name) {
+        // the rules are captured now: the chooser is asynchronous and the table stays editable meanwhile
+        List<ColorRule> rules = List.copyOf(myRules);
+        UIAccess uiAccess = UIAccess.current();
 
         FileChooserDescriptor descriptor = new FileChooserDescriptor(false, true, false, false, false, false);
         descriptor.setTitle("Export Rules");
@@ -329,19 +340,21 @@ public class ColorRulesEditor {
             if (directory == null) {
                 return;
             }
-
-            String text = ColorRulesIO.export(new ColorRulesConfig(name, List.copyOf(myRules)));
+            String text = ColorRulesIO.export(new ColorRulesConfig(name, rules));
             Path target = directory.resolve(name.replace(' ', '_') + ".tcrules");
             try {
                 Files.writeString(target, text, StandardCharsets.UTF_8);
             }
             catch (IOException e) {
-                Messages.showWarningDialog("Failed to write " + target + ": " + e.getMessage(), "Export Rules");
+                uiAccess.give(() -> warn("Failed to write " + target + ": " + e.getMessage(), "Export Rules"));
             }
         });
     }
 
+    @RequiredUIAccess
     private void importRules() {
+        UIAccess uiAccess = UIAccess.current();
+
         FileChooserDescriptor descriptor = new FileChooserDescriptor(true, false, false, false, false, false);
         descriptor.setTitle("Import Rules");
         descriptor.setDescription("Select a Turtle Commander rules file");
@@ -355,105 +368,116 @@ public class ColorRulesEditor {
                 config = ColorRulesIO.parse(Files.readString(chosen, StandardCharsets.UTF_8));
             }
             catch (IOException e) {
-                Messages.showWarningDialog("Failed to read " + chosen + ": " + e.getMessage(),
-                    "Import Rules");
+                uiAccess.give(() -> warn("Failed to read " + chosen + ": " + e.getMessage(), "Import Rules"));
                 return;
             }
-            if (config == null) {
-                Messages.showWarningDialog("Invalid rules file.", "Import Rules");
-                return;
-            }
-
-            int choice = Messages.showYesNoCancelDialog(
-                "Import \"" + config.name() + "\" (" + config.rules().size() + " rules)?\n\n"
-                    + "Yes = replace current rules\nNo = append to current rules",
-                "Import Rules", "Replace", "Append", "Cancel", null);
-            if (choice == Messages.CANCEL) {
-                return;
-            }
-            if (choice == Messages.YES) {
-                myRules.clear();
-            }
-            // Fresh ids, so an imported rule can never collide with — or silently overwrite — an existing one.
-            for (ColorRule rule : config.rules()) {
-                myRules.add(ColorRuleDefaults.withId(rule, UUID.randomUUID().toString()));
-            }
-            resortAndSelect(null);
+            uiAccess.give(() -> {
+                if (config == null) {
+                    warn("Invalid rules file.", "Import Rules");
+                    return;
+                }
+                askImportMode(config);
+            });
         });
+    }
+
+    @RequiredUIAccess
+    private void askImportMode(ColorRulesConfig config) {
+        MessageBoxBuilder.<ImportChoice>create()
+            .asQuestion()
+            .title(LocalizeValue.localizeTODO("Import Rules"))
+            .text(LocalizeValue.localizeTODO("Import \"" + config.name() + "\" (" + config.rules().size() + " rules)?"))
+            .detail(LocalizeValue.localizeTODO("Replace the current rules, or append to them."))
+            .button(MessageButtonRole.YES, LocalizeValue.localizeTODO("Replace"), ImportChoice.REPLACE)
+            .asDefaultButton()
+            .button(MessageButtonRole.NO, LocalizeValue.localizeTODO("Append"), ImportChoice.APPEND)
+            .button(MessageButtonRole.CANCEL, LocalizeValue.localizeTODO("Cancel"), ImportChoice.CANCEL)
+            .asExitButton()
+            .showAsync(myRoot)
+            .whenComplete((choice, error) -> {
+                if (error != null || choice == null || choice == ImportChoice.CANCEL) {
+                    return;
+                }
+                if (choice == ImportChoice.REPLACE) {
+                    myRules.clear();
+                }
+                // fresh ids, so an imported rule can never collide with — or silently overwrite — an existing one
+                for (ColorRule rule : config.rules()) {
+                    myRules.add(ColorRuleDefaults.withId(rule, UUID.randomUUID().toString()));
+                }
+                resortAndSelect(null);
+            });
+    }
+
+    @RequiredUIAccess
+    private void warn(String message, String title) {
+        MessageBoxes.okWarning(LocalizeValue.of(message)).title(LocalizeValue.localizeTODO(title)).showAsync(myRoot);
     }
 
     // --- Table -------------------------------------------------------------------------------------
 
+    @RequiredUIAccess
     private void configureColumns() {
-        TableColumnModel cm = myTable.getColumnModel();
-        setColumnWidth(cm, COL_ACTIVE, 50, 60, new ActiveCellRenderer());
-        setColumnWidth(cm, COL_PRIORITY, 60, 80, new CenterAlignedRenderer());
-        setColumnWidth(cm, COL_NAME, 220, 0, new NoFocusRenderer());
-        setColumnWidth(cm, COL_COLOR, 50, 60, new ColorSwatchCellRenderer());
-        setColumnWidth(cm, COL_BG, 50, 60, new ColorSwatchCellRenderer());
-        setColumnWidth(cm, COL_DOT, 50, 60, new ColorSwatchCellRenderer());
-        setColumnWidth(cm, COL_ICON, 50, 60, new IconCellRenderer());
-        setColumnWidth(cm, COL_MATCHERS, 300, 0, new NoFocusRenderer());
+        myTable.addColumn(LocalizeValue.localizeTODO("On"), ColorRule::active)
+            .setWidth(50)
+            .setHorizontalAlignment(HorizontalAlignment.CENTER)
+            .setRenderer(ComponentItemRenderer.reusable(
+                () -> CheckBox.create(LocalizeValue.empty()),
+                (checkBox, item) -> checkBox.setValue(Boolean.TRUE.equals(item.getValue()))))
+            .setEditor(new TableItemEditor<>() {
+                @RequiredUIAccess
+                @Override
+                public ValueComponent<Boolean> createComponent(ColorRule rule) {
+                    return CheckBox.create(LocalizeValue.empty(), rule.active());
+                }
+
+                @RequiredUIAccess
+                @Override
+                public void commit(ColorRule rule, @Nullable Boolean value) {
+                    setActive(rule, Boolean.TRUE.equals(value));
+                }
+            });
+        myTable.addColumn(LocalizeValue.localizeTODO("Prio"), ColorRule::priority)
+            .setWidth(60)
+            .setHorizontalAlignment(HorizontalAlignment.CENTER);
+        myTable.addColumn(LocalizeValue.localizeTODO("Name"), ColorRule::name)
+            .setWidth(220);
+        addColorColumn("Fg", rule -> rule.style().fontColor());
+        addColorColumn("Bg", rule -> rule.style().backgroundColor());
+        addColorColumn("Dot", rule -> rule.style().iconDotColor());
+        myTable.addColumn(LocalizeValue.localizeTODO("Icon"), (ColorRule rule) -> rule.style().iconId())
+            .setWidth(50)
+            .setHorizontalAlignment(HorizontalAlignment.CENTER)
+            .setRenderer((presentation, value, rule) -> renderIcon(presentation, rule.style().iconId()));
+        myTable.addColumn(LocalizeValue.localizeTODO("Matchers"), ColorRulesEditor::summarizeMatchers)
+            .setWidth(300);
     }
 
-    private static void setColumnWidth(TableColumnModel cm, int index, int preferred, int max,
-                                       DefaultTableCellRenderer renderer) {
-        cm.getColumn(index).setPreferredWidth(JBUI.scale(preferred));
-        if (max > 0) {
-            cm.getColumn(index).setMaxWidth(JBUI.scale(max));
-        }
-        cm.getColumn(index).setCellRenderer(renderer);
+    /** Shows a rule's colour as a swatch; an unset colour renders as an empty cell. */
+    @RequiredUIAccess
+    private void addColorColumn(String header, Function<ColorRule, String> hexOf) {
+        myTable.addColumn(LocalizeValue.localizeTODO(header), hexOf)
+            .setWidth(50)
+            .setHorizontalAlignment(HorizontalAlignment.CENTER)
+            .setRenderer((presentation, value, rule) -> {
+                String hex = hexOf.apply(rule);
+                Color color = PresetColors.decode(hex);
+                if (color != null) {
+                    presentation.withIcon(ColorSwatches.swatch(color));
+                    presentation.withTooltip(LocalizeValue.of(hex));
+                }
+            });
     }
 
-    private final class RulesTableModel extends AbstractTableModel {
-        @Override
-        public int getRowCount() {
-            return myRules.size();
+    /** Shows a rule's override icon, or nothing when it doesn't set one. */
+    private static void renderIcon(TextItemPresentation presentation, String id) {
+        Image icon = RuleIcons.resolve(id);
+        if (icon != null) {
+            presentation.withIcon(icon);
         }
-
-        @Override
-        public int getColumnCount() {
-            return COLUMN_COUNT;
-        }
-
-        @Override
-        public String getColumnName(int column) {
-            return switch (column) {
-                case COL_ACTIVE -> "On";
-                case COL_PRIORITY -> "Prio";
-                case COL_NAME -> "Name";
-                case COL_COLOR -> "Fg";
-                case COL_BG -> "Bg";
-                case COL_DOT -> "Dot";
-                case COL_ICON -> "Icon";
-                case COL_MATCHERS -> "Matchers";
-                default -> "";
-            };
-        }
-
-        @Override
-        public Class<?> getColumnClass(int columnIndex) {
-            return switch (columnIndex) {
-                case COL_ACTIVE -> Boolean.class;
-                case COL_PRIORITY -> Integer.class;
-                default -> String.class;
-            };
-        }
-
-        @Override
-        public Object getValueAt(int rowIndex, int columnIndex) {
-            ColorRule rule = myRules.get(rowIndex);
-            return switch (columnIndex) {
-                case COL_ACTIVE -> rule.active();
-                case COL_PRIORITY -> rule.priority();
-                case COL_NAME -> rule.name();
-                case COL_COLOR -> rule.style().fontColor();
-                case COL_BG -> rule.style().backgroundColor();
-                case COL_DOT -> rule.style().iconDotColor();
-                case COL_ICON -> rule.style().iconId();
-                case COL_MATCHERS -> summarizeMatchers(rule);
-                default -> "";
-            };
+        String label = id.isEmpty() ? null : RuleIcons.label(id);
+        if (label != null) {
+            presentation.withTooltip(LocalizeValue.of(label));
         }
     }
 
@@ -467,100 +491,5 @@ public class ColorRulesEditor {
             joiner.add(RuleMatcherDescriptions.describe(matcher));
         }
         return joiner.toString();
-    }
-
-    private static final class ModeRenderer extends DefaultListCellRenderer {
-        @Override
-        public Component getListCellRendererComponent(JList<?> list, @Nullable Object value, int index,
-                                                      boolean isSelected, boolean cellHasFocus) {
-            Component component =
-                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-            if (value instanceof ColorizationMode mode) {
-                setText(mode == ColorizationMode.WINNER
-                    ? "Winner takes all (highest priority)"
-                    : "Layered (overlay by priority)");
-            }
-            return component;
-        }
-    }
-
-    private static final class ActiveCellRenderer extends DefaultTableCellRenderer {
-        private final JCheckBox myCheckBox = new JCheckBox();
-
-        ActiveCellRenderer() {
-            myCheckBox.setHorizontalAlignment(CENTER);
-        }
-
-        @Override
-        public Component getTableCellRendererComponent(JTable table, @Nullable Object value,
-                                                       boolean isSelected, boolean hasFocus,
-                                                       int row, int column) {
-            myCheckBox.setSelected(Boolean.TRUE.equals(value));
-            myCheckBox.setBackground(isSelected ? table.getSelectionBackground() : table.getBackground());
-            myCheckBox.setForeground(isSelected ? table.getSelectionForeground() : table.getForeground());
-            myCheckBox.setOpaque(true);
-            return myCheckBox;
-        }
-    }
-
-    /**
-     * Drops the per-cell focus rectangle: with whole-row selection the focused-cell border reads as
-     * a single selected cell rather than a selected rule.
-     */
-    private static class NoFocusRenderer extends DefaultTableCellRenderer {
-        @Override
-        public Component getTableCellRendererComponent(JTable table, @Nullable Object value,
-                                                       boolean isSelected, boolean hasFocus,
-                                                       int row, int column) {
-            return super.getTableCellRendererComponent(table, value, isSelected, false, row, column);
-        }
-    }
-
-    private static final class CenterAlignedRenderer extends NoFocusRenderer {
-        CenterAlignedRenderer() {
-            setHorizontalAlignment(CENTER);
-        }
-    }
-
-    /** Shows a rule's colour as a swatch; an unset colour renders as an empty cell. */
-    private static final class ColorSwatchCellRenderer extends NoFocusRenderer {
-        ColorSwatchCellRenderer() {
-            setHorizontalAlignment(CENTER);
-        }
-
-        @Override
-        public Component getTableCellRendererComponent(JTable table, @Nullable Object value,
-                                                       boolean isSelected, boolean hasFocus,
-                                                       int row, int column) {
-            Component component =
-                super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-            String hex = value instanceof String text ? text : "";
-            Color color = PresetColors.decode(hex);
-            setText("");
-            setIcon(color != null ? TargetAWT.to(ColorSwatches.swatch(color)) : null);
-            setToolTipText(color != null ? hex : null);
-            return component;
-        }
-    }
-
-    /** Shows a rule's override icon, or nothing when it doesn't set one. */
-    private static final class IconCellRenderer extends NoFocusRenderer {
-        IconCellRenderer() {
-            setHorizontalAlignment(CENTER);
-        }
-
-        @Override
-        public Component getTableCellRendererComponent(JTable table, @Nullable Object value,
-                                                       boolean isSelected, boolean hasFocus,
-                                                       int row, int column) {
-            Component component =
-                super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-            String id = value instanceof String text ? text : "";
-            Image icon = RuleIcons.resolve(id);
-            setText("");
-            setIcon(icon != null ? TargetAWT.to(icon) : null);
-            setToolTipText(id.isEmpty() ? null : RuleIcons.label(id));
-            return component;
-        }
     }
 }

@@ -1,5 +1,7 @@
 package consulo.turtlecommander.service;
 
+import java.util.function.Supplier;
+import consulo.turtlecommander.ui.FileManagerTab;
 import consulo.annotation.component.ComponentScope;
 import consulo.annotation.component.ServiceAPI;
 import consulo.annotation.component.ServiceImpl;
@@ -19,6 +21,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import consulo.turtlecommander.ui.UnifiedFilePane;
 
 /**
  * Per-project home for the tool window's layout: which panels exist, what they show, the favorites
@@ -39,6 +42,8 @@ public class FileManagerStateService implements PersistentStateComponent<FileMan
     private FileManagerState myState = new FileManagerState();
 
     private @Nullable FileManagerPanel myLeftPanel;
+    private @Nullable Supplier<@Nullable FileManagerTab> myUnifiedActiveTab;
+    private @Nullable Supplier<@Nullable UnifiedFilePane> myUnifiedActivePane;
     private @Nullable FileManagerPanel myRightPanel;
     private @Nullable OnePixelSplitter mySplitter;
     private @Nullable Runnable mySwapSinglePanelCallback;
@@ -97,6 +102,31 @@ public class FileManagerStateService implements PersistentStateComponent<FileMan
     public @Nullable FileTab getActiveTab() {
         FileManagerPanel panel = getActivePanel();
         return panel != null ? panel.getActiveTab() : null;
+    }
+
+    /**
+     * The tab the actions work on: the unified view's while it is open - it reports the tab of the pane last worked
+     * in - and the Swing panels' otherwise.
+     */
+    public @Nullable FileManagerTab getActiveFileManagerTab() {
+        Supplier<@Nullable FileManagerTab> unified = myUnifiedActiveTab;
+        return unified != null ? unified.get() : getActiveTab();
+    }
+
+    /** Set by the unified view while it is open, cleared when it closes. */
+    public void setUnifiedActiveTab(@Nullable Supplier<@Nullable FileManagerTab> activeTab) {
+        myUnifiedActiveTab = activeTab;
+    }
+
+    /** The pane of the unified view last worked in, while the view is open - what the tab actions act on there. */
+    public @Nullable UnifiedFilePane getUnifiedActivePane() {
+        Supplier<@Nullable UnifiedFilePane> pane = myUnifiedActivePane;
+        return pane != null ? pane.get() : null;
+    }
+
+    /** Set by the unified view while it is open, cleared when it closes. */
+    public void setUnifiedActivePane(@Nullable Supplier<@Nullable UnifiedFilePane> activePane) {
+        myUnifiedActivePane = activePane;
     }
 
     /**

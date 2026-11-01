@@ -125,12 +125,6 @@ public final class FileTabNavigationUtil {
             tab.restoreColumnState(path);
         }
 
-        if (vfs == null) {
-            // Apply any roots update parked while this tab was inside an archive.
-            tab.getDriveCombo().flushPendingLater(path);
-            tab.getDriveCombo().syncSelection(path);
-        }
-
         restoreCursor(tab, path, selectName);
         tab.setInitialized(true);
 

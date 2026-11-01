@@ -7,7 +7,7 @@ import consulo.platform.base.icon.PlatformIconGroup;
 import consulo.project.Project;
 import consulo.turtlecommander.action.ActionTargets;
 import consulo.turtlecommander.action.SearchContextMenuState;
-import consulo.turtlecommander.dialog.FileSearchDialog;
+import consulo.turtlecommander.dialog.FileSearchDialogDescriptor;
 import consulo.turtlecommander.model.FileEntry;
 import consulo.turtlecommander.search.FileSearchCriteria;
 import consulo.turtlecommander.service.FileManagerStateService;
@@ -23,6 +23,7 @@ import consulo.ui.ex.awt.JBScrollPane;
 import consulo.ui.ex.awt.speedSearch.TableSpeedSearch;
 import consulo.ui.ex.awt.table.JBTable;
 import consulo.ui.ex.awtUnsafe.TargetAWT;
+import consulo.ui.ex.dialog.DialogService;
 import consulo.ui.image.Image;
 import consulo.virtualFileSystem.fileType.FileTypeRegistry;
 import org.jspecify.annotations.Nullable;
@@ -96,7 +97,7 @@ public class SearchResultsPanel extends JPanel implements Disposable {
         add(new JBScrollPane(myTable), BorderLayout.CENTER);
 
         JPanel bottomPanel = new JPanel(new BorderLayout());
-        bottomPanel.add(myQuickFilterBar, BorderLayout.NORTH);
+        bottomPanel.add(TargetAWT.to(myQuickFilterBar.getComponent()), BorderLayout.NORTH);
         bottomPanel.add(createControlPanel(), BorderLayout.SOUTH);
         add(bottomPanel, BorderLayout.SOUTH);
     }
@@ -359,11 +360,14 @@ public class SearchResultsPanel extends JPanel implements Disposable {
     }
 
     private void editSearch() {
-        FileSearchDialog dialog = new FileSearchDialog(myProject, myCriteria.rootPath(), myCriteria);
-        if (dialog.showAndGet()) {
-            myCriteria = dialog.getCriteria();
-            startSearch();
-        }
+        FileSearchDialogDescriptor descriptor = new FileSearchDialogDescriptor(myCriteria.rootPath(), myCriteria);
+        myProject.getApplication().getInstance(DialogService.class).build(descriptor).showAsync().whenComplete((v, e) -> {
+            // a cancelled dialog completes exceptionally
+            if (e == null) {
+                myCriteria = descriptor.getCriteria();
+                startSearch();
+            }
+        });
     }
 
     // --- Search -------------------------------------------------------------------------------------

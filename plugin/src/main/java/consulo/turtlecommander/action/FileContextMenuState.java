@@ -1,7 +1,7 @@
 package consulo.turtlecommander.action;
 
+import consulo.turtlecommander.ui.FileManagerTab;
 import consulo.turtlecommander.model.FileEntry;
-import consulo.turtlecommander.ui.FileTab;
 import consulo.ui.ex.action.AnActionEvent;
 import org.jspecify.annotations.Nullable;
 
@@ -18,7 +18,7 @@ import java.lang.ref.WeakReference;
  */
 public final class FileContextMenuState {
     private static @Nullable FileEntry ourClickedEntry;
-    private static WeakReference<FileTab> ourClickedTab = new WeakReference<>(null);
+    private static WeakReference<FileManagerTab> ourClickedTab = new WeakReference<>(null);
 
     private FileContextMenuState() {
     }
@@ -35,11 +35,11 @@ public final class FileContextMenuState {
         ourClickedEntry = entry;
     }
 
-    public static @Nullable FileTab getClickedTab(AnActionEvent e) {
+    public static @Nullable FileManagerTab getClickedTab(AnActionEvent e) {
         return isContextMenu(e) ? ourClickedTab.get() : null;
     }
 
-    public static void setClickedTab(@Nullable FileTab tab) {
+    public static void setClickedTab(@Nullable FileManagerTab tab) {
         ourClickedTab = new WeakReference<>(tab);
     }
 

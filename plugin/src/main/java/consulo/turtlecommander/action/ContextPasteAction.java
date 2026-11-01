@@ -3,9 +3,8 @@ package consulo.turtlecommander.action;
 import consulo.annotation.component.ActionImpl;
 import consulo.localize.LocalizeValue;
 import consulo.turtlecommander.model.FileEntry;
-import consulo.turtlecommander.ui.FileTab;
+import consulo.turtlecommander.ui.FileManagerTab;
 import consulo.turtlecommander.ui.FileTabOperationUtil;
-import consulo.turtlecommander.ui.FileTabVfsUtil;
 import consulo.turtlecommander.vfs.VirtualFileSystem;
 import consulo.ui.ex.action.AnActionEvent;
 import org.jspecify.annotations.Nullable;
@@ -23,19 +22,19 @@ public class ContextPasteAction extends EdtAction {
 
     @Override
     public void update(AnActionEvent e) {
-        FileTab tab = ActionTargets.resolveFileContextTab(e);
+        FileManagerTab tab = ActionTargets.resolveFileContextTab(e);
         e.getPresentation().setEnabled(!FileCopyBuffer.getEntries().isEmpty() && isWritable(tab));
     }
 
     @Override
     public void actionPerformed(AnActionEvent e) {
-        FileTab tab = ActionTargets.resolveFileContextTab(e);
+        FileManagerTab tab = ActionTargets.resolveFileContextTab(e);
         if (tab != null) {
             paste(tab, tab.getCurrentPath());
         }
     }
 
-    static boolean isWritable(@Nullable FileTab tab) {
+    static boolean isWritable(@Nullable FileManagerTab tab) {
         if (tab == null) {
             return false;
         }
@@ -44,12 +43,12 @@ public class ContextPasteAction extends EdtAction {
     }
 
     /** A cut settles the buffer against the outcome; a copy leaves it alone so it can be reused. */
-    static void paste(FileTab tab, Path destination) {
+    static void paste(FileManagerTab tab, Path destination) {
         List<FileEntry> entries = FileCopyBuffer.getEntries();
         if (entries.isEmpty()) {
             return;
         }
-        String displayPath = FileTabVfsUtil.getDisplayPath(tab);
+        String displayPath = tab.getDisplayPath();
         if (FileCopyBuffer.isCut()) {
             FileTabOperationUtil.performMoveEntries(tab, entries, destination, displayPath,
                 () -> FileCopyBuffer.pruneMovedEntries(entries));

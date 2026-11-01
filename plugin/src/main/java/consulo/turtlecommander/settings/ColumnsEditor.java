@@ -1,38 +1,35 @@
 package consulo.turtlecommander.settings;
 
-import consulo.ui.ex.awt.JBLabel;
-import consulo.ui.ex.awt.JBList;
-import consulo.ui.ex.awt.JBUI;
+import consulo.localize.LocalizeValue;
+import consulo.platform.base.icon.PlatformIconGroup;
+import consulo.ui.Button;
+import consulo.ui.ButtonStyle;
+import consulo.ui.CheckBox;
+import consulo.ui.Component;
+import consulo.ui.ComponentItemRenderer;
+import consulo.ui.Space;
+import consulo.ui.Table;
+import consulo.ui.TableItemEditor;
+import consulo.ui.ValueComponent;
+import consulo.ui.annotation.RequiredUIAccess;
+import consulo.ui.image.Image;
+import consulo.ui.layout.DockLayout;
+import consulo.ui.layout.HorizontalLayout;
+import consulo.ui.layout.LabeledLayout;
+import consulo.ui.layout.ScrollableLayout;
+import consulo.ui.model.FlatDataModel;
+import consulo.ui.model.MutableFlatDataModel;
+import org.jspecify.annotations.Nullable;
 
-import javax.swing.BorderFactory;
-import javax.swing.BoxLayout;
-import javax.swing.DefaultListModel;
-import javax.swing.JButton;
-import javax.swing.JCheckBox;
-import javax.swing.JComponent;
-import javax.swing.JList;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.ListCellRenderer;
-import javax.swing.ListSelectionModel;
-import java.awt.BorderLayout;
-import java.awt.Component;
-import java.awt.Dimension;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
-import java.awt.Rectangle;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Column visibility, order and per-column styling: a checkbox list on the left with Up/Down, and
- * the selected column's style controls on the right.
+ * Column visibility, order and per-column styling: a table of columns with a visibility checkbox and Up/Down on the
+ * left, and the selected column's style controls on the right.
  */
 public class ColumnsEditor {
-    /** Clicks left of this offset land on the row's checkbox rather than selecting it. */
-    private static final int CHECKBOX_HIT_WIDTH = 24;
+    private static final int LIST_WIDTH = 200;
     private static final int PANEL_HEIGHT = 260;
 
     /** One row: the column's identity and visibility, plus its own style editor. */
@@ -48,142 +45,112 @@ public class ColumnsEditor {
         }
     }
 
+    /** The rows in their current order - mirrored by the table model, kept as a list for index-based comparison. */
     private final List<ColumnRow> myRows = new ArrayList<>();
-    private final DefaultListModel<ColumnRow> myListModel = new DefaultListModel<>();
-    private final JBList<ColumnRow> myList = new JBList<>(myListModel);
-    private final JPanel myDetailPanel = new JPanel(new BorderLayout());
-    private final JPanel myPanel;
+    private final MutableFlatDataModel<ColumnRow> myModel = FlatDataModel.of(List.of());
+    private final Table<ColumnRow> myTable = Table.create(myModel);
+    private final DockLayout myDetailPanel = DockLayout.create();
+    private final Component myRoot;
 
+    @RequiredUIAccess
     public ColumnsEditor(List<ColumnConfig> initialColumns) {
+        myTable.setAllowMultipleSelect(false);
+        myTable.addColumn(LocalizeValue.localizeTODO("Visible"), row -> row.myVisible)
+            .setWidth(60)
+            .setRenderer(ComponentItemRenderer.reusable(
+                () -> CheckBox.create(LocalizeValue.empty()),
+                (checkBox, item) -> checkBox.setValue(Boolean.TRUE.equals(item.getValue()))))
+            .setEditor(new TableItemEditor<>() {
+                @RequiredUIAccess
+                @Override
+                public ValueComponent<Boolean> createComponent(ColumnRow row) {
+                    return CheckBox.create(LocalizeValue.empty(), row.myVisible);
+                }
+
+                @RequiredUIAccess
+                @Override
+                public void commit(ColumnRow row, @Nullable Boolean value) {
+                    row.myVisible = Boolean.TRUE.equals(value);
+                    myModel.update(row);
+                }
+            });
+        myTable.addColumn(LocalizeValue.localizeTODO("Column"), row -> row.myId);
+        myTable.addSelectListener(event -> updateDetail());
+
+        myRoot = buildPanel();
         resetFrom(initialColumns);
-
-        myList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        myList.setCellRenderer(new CheckBoxRenderer());
-        myList.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                toggleVisibilityIfOnCheckBox(e);
-            }
-        });
-        myList.addListSelectionListener(e -> updateDetail());
-
-        myPanel = buildPanel();
-        if (!myRows.isEmpty()) {
-            myList.setSelectedIndex(0);
-        }
     }
 
-    public JPanel getPanel() {
-        return myPanel;
+    public Component getComponent() {
+        return myRoot;
     }
 
-    private JPanel buildPanel() {
-        JButton moveUpButton = new JButton("Up");
-        moveUpButton.addActionListener(e -> move(-1));
-        JButton moveDownButton = new JButton("Down");
-        moveDownButton.addActionListener(e -> move(1));
+    @RequiredUIAccess
+    private Component buildPanel() {
+        HorizontalLayout toolbar = HorizontalLayout.create(Space.X_SMALL);
+        toolbar.add(toolbarButton(PlatformIconGroup.actionsMoveup(), "Move Up", () -> move(-1)));
+        toolbar.add(toolbarButton(PlatformIconGroup.actionsMovedown(), "Move Down", () -> move(1)));
 
-        JPanel buttonPanel = new JPanel();
-        buttonPanel.setLayout(new BoxLayout(buttonPanel, BoxLayout.Y_AXIS));
-        for (JButton button : List.of(moveUpButton, moveDownButton)) {
-            button.setMaximumSize(new Dimension(Integer.MAX_VALUE, button.getPreferredSize().height));
-            buttonPanel.add(button);
-        }
+        ScrollableLayout tableScroll = ScrollableLayout.create(myTable);
+        DockLayout listPanel = DockLayout.create(Space.X_SMALL).top(toolbar).center(tableScroll);
+        listPanel.setWidth(LIST_WIDTH);
 
-        JScrollPane listScroll = new JScrollPane(myList);
-        listScroll.setPreferredSize(new Dimension(160, 0));
-        JPanel listPanel = new JPanel(new BorderLayout(4, 0));
-        listPanel.add(listScroll, BorderLayout.CENTER);
-        listPanel.add(buttonPanel, BorderLayout.EAST);
-
-        JPanel panel = new JPanel(new BorderLayout(8, 0));
-        panel.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-        panel.setBorder(BorderFactory.createTitledBorder("Columns"));
-        panel.add(listPanel, BorderLayout.WEST);
-        panel.add(myDetailPanel, BorderLayout.CENTER);
-        panel.setPreferredSize(new Dimension(Integer.MAX_VALUE, PANEL_HEIGHT));
-        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, PANEL_HEIGHT));
-        return panel;
+        DockLayout panel = DockLayout.create(Space.MEDIUM).left(listPanel).center(myDetailPanel);
+        panel.setHeight(PANEL_HEIGHT);
+        return LabeledLayout.create(LocalizeValue.localizeTODO("Columns"), panel);
     }
 
-    private void toggleVisibilityIfOnCheckBox(MouseEvent e) {
-        int index = myList.locationToIndex(e.getPoint());
-        if (index < 0) {
-            return;
-        }
-        Rectangle cellBounds = myList.getCellBounds(index, index);
-        if (cellBounds == null || e.getX() - cellBounds.x >= CHECKBOX_HIT_WIDTH) {
-            return;
-        }
-        ColumnRow row = myRows.get(index);
-        row.myVisible = !row.myVisible;
-        // Re-setting the element is what makes the list repaint that row.
-        myListModel.set(index, row);
-        updateDetail();
+    @RequiredUIAccess
+    private static Button toolbarButton(Image icon, String tooltip, Runnable action) {
+        Button button = Button.create(LocalizeValue.empty());
+        button.setIcon(icon);
+        button.addStyle(ButtonStyle.BORDERLESS);
+        button.setToolTipText(LocalizeValue.localizeTODO(tooltip));
+        button.addClickListener(event -> action.run());
+        return button;
     }
 
+    @RequiredUIAccess
     private void move(int offset) {
-        int index = myList.getSelectedIndex();
+        ColumnRow selected = myTable.getSelectedItem();
+        int index = selected == null ? -1 : myRows.indexOf(selected);
         int target = index + offset;
         if (index < 0 || target < 0 || target >= myRows.size()) {
             return;
         }
         myRows.add(target, myRows.remove(index));
-        rebuildListModel();
-        myList.setSelectedIndex(target);
+        myModel.remove(selected);
+        myModel.add(selected, target);
+        myTable.select(selected);
+        updateDetail();
     }
 
     /** Shows the selected column's style controls; blank when nothing is selected. */
+    @RequiredUIAccess
     private void updateDetail() {
         myDetailPanel.removeAll();
-
-        int index = myList.getSelectedIndex();
-        if (index >= 0 && index < myRows.size()) {
-            myDetailPanel.add(buildDetailGrid(myRows.get(index).myStyleEditor), BorderLayout.CENTER);
+        ColumnRow selected = myTable.getSelectedItem();
+        if (selected != null) {
+            myDetailPanel.center(selected.myStyleEditor.getComponent());
         }
-        myDetailPanel.revalidate();
-        myDetailPanel.repaint();
+        myDetailPanel.forceRepaint();
     }
 
-    private static JPanel buildDetailGrid(ComponentStyleEditor editor) {
-        JPanel grid = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.NONE;
-        gbc.insets = JBUI.insets(2, 4);
-
-        addDetailRow(grid, gbc, 0, "Font:", editor.getFontCombo());
-        addDetailRow(grid, gbc, 1, "Size:", editor.getSizeSpinner());
-        addDetailRow(grid, gbc, 2, "Style:", editor.getStyleCombo());
-        addDetailRow(grid, gbc, 3, "Color:", editor.getColorButton());
-        return grid;
-    }
-
-    private static void addDetailRow(JPanel grid, GridBagConstraints gbc, int row, String label,
-                                     JComponent field) {
-        gbc.gridy = row;
-        gbc.gridx = 0;
-        grid.add(new JBLabel(label), gbc);
-        gbc.gridx = 1;
-        grid.add(field, gbc);
-    }
-
-    private void rebuildListModel() {
-        myListModel.clear();
-        for (ColumnRow row : myRows) {
-            myListModel.addElement(row);
-        }
-    }
-
+    @RequiredUIAccess
     public void resetFrom(List<ColumnConfig> columns) {
+        ColumnRow previous = myTable.getSelectedItem();
+        int previousIndex = previous == null ? -1 : myRows.indexOf(previous);
+
         myRows.clear();
         for (ColumnConfig column : columns) {
-            myRows.add(new ColumnRow(column.id, column.visible,
-                new ComponentStyleEditor(column.id, column.style)));
+            myRows.add(new ColumnRow(column.id, column.visible, new ComponentStyleEditor(column.id, column.style)));
         }
-        rebuildListModel();
-        if (!myRows.isEmpty() && myList.getSelectedIndex() < 0) {
-            myList.setSelectedIndex(0);
+        myModel.replaceAll(new ArrayList<>(myRows));
+
+        // the rows are new objects, so the selection is carried over by position
+        if (!myRows.isEmpty()) {
+            int index = previousIndex >= 0 && previousIndex < myRows.size() ? previousIndex : 0;
+            myTable.select(myRows.get(index));
         }
         updateDetail();
     }
@@ -212,22 +179,5 @@ public class ColumnsEditor {
             }
         }
         return false;
-    }
-
-    /** Renders each row as a checkbox labelled with the column id. */
-    private static final class CheckBoxRenderer implements ListCellRenderer<ColumnRow> {
-        private final JCheckBox myCheckBox = new JCheckBox();
-
-        @Override
-        public Component getListCellRendererComponent(JList<? extends ColumnRow> list, ColumnRow value,
-                                                      int index, boolean isSelected, boolean cellHasFocus) {
-            myCheckBox.setText(value != null ? value.myId : "");
-            myCheckBox.setSelected(value != null && value.myVisible);
-            myCheckBox.setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
-            myCheckBox.setForeground(isSelected ? list.getSelectionForeground() : list.getForeground());
-            myCheckBox.setOpaque(true);
-            myCheckBox.setFont(list.getFont());
-            return myCheckBox;
-        }
     }
 }

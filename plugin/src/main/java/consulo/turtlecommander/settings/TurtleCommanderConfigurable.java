@@ -14,32 +14,24 @@ import consulo.turtlecommander.dialog.OverwritePolicyRenderer;
 import consulo.turtlecommander.service.FileManagerStateService;
 import consulo.turtlecommander.service.OverwritePolicy;
 import consulo.turtlecommander.service.ThumbnailCache;
+import consulo.turtlecommander.ui.ViewMode;
 import consulo.turtlecommander.util.FileUtils;
+import consulo.ui.Button;
+import consulo.ui.CheckBox;
+import consulo.ui.ComboBox;
+import consulo.ui.Component;
+import consulo.ui.Label;
+import consulo.ui.Space;
+import consulo.ui.TextBox;
 import consulo.ui.annotation.RequiredUIAccess;
-import consulo.ui.ex.awt.ComboBox;
-import consulo.ui.ex.awt.JBLabel;
-import consulo.ui.ex.awt.JBTextField;
-import consulo.ui.ex.awt.event.DocumentAdapter;
-import consulo.ui.ex.awtUnsafe.TargetAWT;
+import consulo.ui.layout.HorizontalLayout;
+import consulo.ui.layout.ScrollableLayout;
+import consulo.ui.layout.VerticalLayout;
 import org.jspecify.annotations.Nullable;
 
-import javax.swing.Box;
-import javax.swing.BoxLayout;
-import javax.swing.DefaultComboBoxModel;
-import javax.swing.DefaultListCellRenderer;
-import javax.swing.JButton;
-import javax.swing.JCheckBox;
-import javax.swing.JComponent;
-import javax.swing.JList;
-import javax.swing.JPanel;
-import javax.swing.event.DocumentEvent;
-import java.awt.BorderLayout;
-import java.awt.Component;
-import java.awt.FlowLayout;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.function.Function;
 
 /** The plugin's settings page. */
 @ExtensionImpl
@@ -47,30 +39,26 @@ public class TurtleCommanderConfigurable implements SearchableConfigurable, Appl
     /** A fixed instant so the format preview is stable while the user types a pattern. */
     private static final String SAMPLE_INSTANT = "2023-11-14T22:13:20Z";
 
-    private static final String[] VIEW_MODE_LABELS = {"Table", "List", "Thumbnail", "Tree"};
-    private static final String[] LAYOUT_LABELS =
-        {"Horizontal Dual-panel", "Vertical Dual-panel", "Single-panel"};
-
-    private @Nullable JCheckBox myHighlightingCheckBox;
-    private @Nullable JCheckBox myCommandBarCheckBox;
-    private @Nullable JCheckBox mySaveCommandHistoryCheckBox;
-    private @Nullable JCheckBox myHideDriveSelectorCheckBox;
-    private @Nullable JCheckBox myHideStatusBarCheckBox;
-    private @Nullable JCheckBox myDeleteToRecycleBinCheckBox;
-    private @Nullable JCheckBox mySortWithDirectoriesCheckBox;
-    private @Nullable JCheckBox myNaturalNameSortCheckBox;
-    private @Nullable JCheckBox myCalculateDirectorySizeCheckBox;
-    private @Nullable JCheckBox myOpenDirectoriesWithSingleClickCheckBox;
+    private @Nullable CheckBox myHighlightingCheckBox;
+    private @Nullable CheckBox myCommandBarCheckBox;
+    private @Nullable CheckBox mySaveCommandHistoryCheckBox;
+    private @Nullable CheckBox myHideDriveSelectorCheckBox;
+    private @Nullable CheckBox myHideStatusBarCheckBox;
+    private @Nullable CheckBox myDeleteToRecycleBinCheckBox;
+    private @Nullable CheckBox mySortWithDirectoriesCheckBox;
+    private @Nullable CheckBox myNaturalNameSortCheckBox;
+    private @Nullable CheckBox myCalculateDirectorySizeCheckBox;
+    private @Nullable CheckBox myOpenDirectoriesWithSingleClickCheckBox;
 
     private @Nullable ComboBox<OverwritePolicy> myOverwritePolicyCombo;
-    private @Nullable ComboBox<String> myDefaultViewModeCombo;
-    private @Nullable ComboBox<String> myPanelLayoutCombo;
+    private @Nullable ComboBox<ViewMode> myDefaultViewModeCombo;
+    private @Nullable ComboBox<PanelLayout> myPanelLayoutCombo;
     private @Nullable ComboBox<ThumbnailSize> myThumbnailSizeCombo;
     private @Nullable ComboBox<FileSizeFormat> myFileSizeFormatCombo;
 
-    private @Nullable JBTextField myDateTimeFormatField;
-    private @Nullable JBTextField myExportDateTimeFormatField;
-    private @Nullable JBLabel myDateTimePreviewLabel;
+    private @Nullable TextBox myDateTimeFormatField;
+    private @Nullable TextBox myExportDateTimeFormatField;
+    private @Nullable Label myDateTimePreviewLabel;
 
     private @Nullable AppearanceEditor myAppearanceEditor;
     private @Nullable ColumnsEditor myColumnsEditor;
@@ -84,8 +72,7 @@ public class TurtleCommanderConfigurable implements SearchableConfigurable, Appl
 
     @Override
     public @Nullable String getParentId() {
-        // Consulo has no "tools" group, which is where this page sat upstream.
-        return StandardConfigurableIds.PLATFORM_AND_PLUGINS_GROUP;
+        return StandardConfigurableIds.EXECUTION_GROUP;
     }
 
     @Override
@@ -95,45 +82,53 @@ public class TurtleCommanderConfigurable implements SearchableConfigurable, Appl
 
     @RequiredUIAccess
     @Override
-    public consulo.ui.Component createUIComponent(@Nullable Disposable parentDisposable) {
+    public Component createUIComponent(@Nullable Disposable parentDisposable) {
         TurtleCommanderSettings.State settings = TurtleCommanderSettings.getInstance().getState();
 
-        myHighlightingCheckBox =
-            new JCheckBox("Enable file colors and icons", settings.enableFileNameHighlighting);
-        myCommandBarCheckBox =
-            new JCheckBox("Show command bar (F5 Copy, F6 Move, etc.)", settings.showCommandBar);
-        mySaveCommandHistoryCheckBox =
-            new JCheckBox("Save command execution history", settings.saveCommandHistory);
-        myHideDriveSelectorCheckBox = new JCheckBox("Hide drive selector", settings.hideDriveSelector);
-        myHideStatusBarCheckBox = new JCheckBox("Hide status bar", settings.hideStatusBar);
-        myDeleteToRecycleBinCheckBox =
-            new JCheckBox("Delete to Recycle Bin (Shift+Delete bypasses)", settings.deleteToRecycleBin);
-        mySortWithDirectoriesCheckBox =
-            new JCheckBox("Sort directories together with files", settings.sortWithDirectories);
-        myNaturalNameSortCheckBox = new JCheckBox(
-            "Natural sort order for file names (file2 before file10)", settings.naturalNameSort);
-        myCalculateDirectorySizeCheckBox =
-            new JCheckBox("Calculate directory size on selection", settings.calculateDirectorySize);
-        myOpenDirectoriesWithSingleClickCheckBox = new JCheckBox(
-            "Open directories with a single click", settings.openDirectoriesWithSingleClick);
+        myHighlightingCheckBox = CheckBox.create(
+            LocalizeValue.localizeTODO("Enable file colors and icons"), settings.enableFileNameHighlighting);
+        myCommandBarCheckBox = CheckBox.create(
+            LocalizeValue.localizeTODO("Show command bar (F5 Copy, F6 Move, etc.)"), settings.showCommandBar);
+        mySaveCommandHistoryCheckBox = CheckBox.create(
+            LocalizeValue.localizeTODO("Save command execution history"), settings.saveCommandHistory);
+        myHideDriveSelectorCheckBox =
+            CheckBox.create(LocalizeValue.localizeTODO("Hide drive selector"), settings.hideDriveSelector);
+        myHideStatusBarCheckBox =
+            CheckBox.create(LocalizeValue.localizeTODO("Hide status bar"), settings.hideStatusBar);
+        myDeleteToRecycleBinCheckBox = CheckBox.create(
+            LocalizeValue.localizeTODO("Delete to Recycle Bin (Shift+Delete bypasses)"), settings.deleteToRecycleBin);
+        mySortWithDirectoriesCheckBox = CheckBox.create(
+            LocalizeValue.localizeTODO("Sort directories together with files"), settings.sortWithDirectories);
+        myNaturalNameSortCheckBox = CheckBox.create(
+            LocalizeValue.localizeTODO("Natural sort order for file names (file2 before file10)"),
+            settings.naturalNameSort);
+        myCalculateDirectorySizeCheckBox = CheckBox.create(
+            LocalizeValue.localizeTODO("Calculate directory size on selection"), settings.calculateDirectorySize);
+        myOpenDirectoriesWithSingleClickCheckBox = CheckBox.create(
+            LocalizeValue.localizeTODO("Open directories with a single click"),
+            settings.openDirectoriesWithSingleClick);
 
-        myOverwritePolicyCombo = new ComboBox<>(OverwritePolicy.values());
-        myOverwritePolicyCombo.setRenderer(OverwritePolicyRenderer.INSTANCE);
-        myOverwritePolicyCombo.setSelectedItem(
-            TurtleCommanderSettings.getInstance().getDefaultOverwritePolicy());
+        myOverwritePolicyCombo = ComboBox.create(OverwritePolicy.values());
+        myOverwritePolicyCombo.setTextRenderer(policy -> LocalizeValue.of(OverwritePolicyRenderer.label(policy)));
+        myOverwritePolicyCombo.setValue(TurtleCommanderSettings.getInstance().getDefaultOverwritePolicy());
 
-        myDefaultViewModeCombo = new ComboBox<>(new DefaultComboBoxModel<>(VIEW_MODE_LABELS));
-        myDefaultViewModeCombo.setSelectedItem(viewModeLabelFor(settings.defaultViewMode));
-        myPanelLayoutCombo = new ComboBox<>(new DefaultComboBoxModel<>(LAYOUT_LABELS));
-        myPanelLayoutCombo.setSelectedItem(layoutLabelFor(settings.panelLayout));
+        myDefaultViewModeCombo = ComboBox.create(ViewMode.values());
+        myDefaultViewModeCombo.setTextRenderer(mode -> mode == null ? LocalizeValue.empty() : viewModeLabel(mode));
+        myDefaultViewModeCombo.setValue(ViewMode.fromName(settings.defaultViewMode));
 
-        myThumbnailSizeCombo = new ComboBox<>(new DefaultComboBoxModel<>(ThumbnailSize.values()));
-        myThumbnailSizeCombo.setSelectedItem(ThumbnailSize.fromName(settings.thumbnailSize));
-        myThumbnailSizeCombo.setRenderer(labelRenderer(ThumbnailSize::getLabel));
+        myPanelLayoutCombo = ComboBox.create(PanelLayout.values());
+        myPanelLayoutCombo.setTextRenderer(layout -> layout == null ? LocalizeValue.empty() : layoutLabel(layout));
+        myPanelLayoutCombo.setValue(PanelLayout.fromName(settings.panelLayout));
 
-        myFileSizeFormatCombo = new ComboBox<>(new DefaultComboBoxModel<>(FileSizeFormat.values()));
-        myFileSizeFormatCombo.setSelectedItem(FileSizeFormat.fromName(settings.fileSizeFormat));
-        myFileSizeFormatCombo.setRenderer(labelRenderer(FileSizeFormat::getLabel));
+        myThumbnailSizeCombo = ComboBox.create(ThumbnailSize.values());
+        myThumbnailSizeCombo.setTextRenderer(
+            size -> size == null ? LocalizeValue.empty() : LocalizeValue.localizeTODO(size.getLabel()));
+        myThumbnailSizeCombo.setValue(ThumbnailSize.fromName(settings.thumbnailSize));
+
+        myFileSizeFormatCombo = ComboBox.create(FileSizeFormat.values());
+        myFileSizeFormatCombo.setTextRenderer(
+            format -> format == null ? LocalizeValue.empty() : LocalizeValue.localizeTODO(format.getLabel()));
+        myFileSizeFormatCombo.setValue(FileSizeFormat.fromName(settings.fileSizeFormat));
 
         buildDateTimeFields(settings);
 
@@ -143,134 +138,116 @@ public class TurtleCommanderConfigurable implements SearchableConfigurable, Appl
         myColorRulesEditor = new ColorRulesEditor(null);
         myColorRulesEditor.resetFrom(settings);
 
-        return TargetAWT.wrap(buildRoot());
+        return buildRoot();
     }
 
+    @RequiredUIAccess
     private void buildDateTimeFields(TurtleCommanderSettings.State settings) {
-        myDateTimePreviewLabel = new JBLabel("");
-        myDateTimeFormatField = new JBTextField(settings.dateTimeFormat.isBlank()
-            ? TurtleCommanderSettings.DEFAULT_DATE_TIME_FORMAT : settings.dateTimeFormat, 20);
-        myDateTimeFormatField.setToolTipText(
-            "Java DateTimeFormatter pattern, e.g. yyyy-MM-dd HH:mm, dd/MM/yyyy, MMM d yyyy h:mm a");
-        myDateTimeFormatField.getDocument().addDocumentListener(new DocumentAdapter() {
-            @Override
-            protected void textChanged(DocumentEvent e) {
-                updateDateTimePreview();
-            }
-        });
+        myDateTimePreviewLabel = Label.create();
+        myDateTimeFormatField = TextBox.create(settings.dateTimeFormat.isBlank()
+            ? TurtleCommanderSettings.DEFAULT_DATE_TIME_FORMAT : settings.dateTimeFormat).withVisibleLength(20);
+        myDateTimeFormatField.setToolTipText(LocalizeValue.localizeTODO(
+            "Java DateTimeFormatter pattern, e.g. yyyy-MM-dd HH:mm, dd/MM/yyyy, MMM d yyyy h:mm a"));
+        // the value listener fires per keystroke, so the preview follows the typing
+        myDateTimeFormatField.addValueListener(event -> updateDateTimePreview());
         updateDateTimePreview();
 
-        myExportDateTimeFormatField = new JBTextField(settings.exportDateTimeFormat, 20);
-        myExportDateTimeFormatField.setToolTipText("Date/time format for CSV/JSON export. Leave blank "
-            + "for ISO-8601 UTC (e.g. 2026-06-16T12:34:56Z); otherwise a Java DateTimeFormatter "
-            + "pattern in local time.");
+        myExportDateTimeFormatField = TextBox.create(settings.exportDateTimeFormat).withVisibleLength(20);
+        myExportDateTimeFormatField.setToolTipText(LocalizeValue.localizeTODO("Date/time format for CSV/JSON "
+            + "export. Leave blank for ISO-8601 UTC (e.g. 2026-06-16T12:34:56Z); otherwise a Java "
+            + "DateTimeFormatter pattern in local time."));
     }
 
-    private JComponent buildRoot() {
-        JPanel inner = new JPanel();
-        inner.setLayout(new BoxLayout(inner, BoxLayout.Y_AXIS));
+    @RequiredUIAccess
+    private Component buildRoot() {
+        VerticalLayout inner = VerticalLayout.create(Space.SMALL);
 
-        for (JCheckBox checkBox : new JCheckBox[]{myHighlightingCheckBox, myCommandBarCheckBox}) {
-            checkBox.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-            inner.add(checkBox);
-        }
+        inner.add(myHighlightingCheckBox);
+        inner.add(myCommandBarCheckBox);
         inner.add(buildCommandHistoryRow());
-        for (JCheckBox checkBox : new JCheckBox[]{myHideDriveSelectorCheckBox, myHideStatusBarCheckBox,
-            myDeleteToRecycleBinCheckBox, mySortWithDirectoriesCheckBox, myNaturalNameSortCheckBox,
-            myCalculateDirectorySizeCheckBox, myOpenDirectoriesWithSingleClickCheckBox}) {
-            checkBox.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-            inner.add(checkBox);
-        }
+        inner.add(myHideDriveSelectorCheckBox);
+        inner.add(myHideStatusBarCheckBox);
+        inner.add(myDeleteToRecycleBinCheckBox);
+        inner.add(mySortWithDirectoriesCheckBox);
+        inner.add(myNaturalNameSortCheckBox);
+        inner.add(myCalculateDirectorySizeCheckBox);
+        inner.add(myOpenDirectoriesWithSingleClickCheckBox);
 
-        inner.add(Box.createVerticalStrut(8));
-        inner.add(labelledRow("Default copy/move policy:  ", myOverwritePolicyCombo));
-        inner.add(labelledRow("Default tab view:  ", myDefaultViewModeCombo));
-        inner.add(labelledRow("Layout:  ", myPanelLayoutCombo));
+        inner.add(labelledRow("Default copy/move policy:", myOverwritePolicyCombo));
+        inner.add(labelledRow("Default tab view:", myDefaultViewModeCombo));
+        inner.add(labelledRow("Layout:", myPanelLayoutCombo));
         inner.add(buildThumbnailRow());
-        inner.add(labelledRow("File size format:  ", myFileSizeFormatCombo));
+        inner.add(labelledRow("File size format:", myFileSizeFormatCombo));
         inner.add(buildDateTimeRow());
         inner.add(buildExportDateTimeRow());
 
-        inner.add(Box.createVerticalStrut(8));
-        inner.add(myAppearanceEditor.getPanel());
-        inner.add(Box.createVerticalStrut(8));
-        inner.add(myColumnsEditor.getPanel());
-        inner.add(Box.createVerticalStrut(8));
-        inner.add(myColorRulesEditor.getPanel());
-        inner.add(Box.createVerticalStrut(8));
-        inner.add(myFavoritesEditor.getPanel());
+        inner.add(myAppearanceEditor.getComponent());
+        inner.add(myColumnsEditor.getComponent());
+        inner.add(myColorRulesEditor.getComponent());
+        inner.add(myFavoritesEditor.getComponent());
 
-        // NORTH keeps the stack at its natural height rather than stretching it down the dialog.
-        JPanel root = new JPanel(new BorderLayout());
-        root.add(inner, BorderLayout.NORTH);
-        return root;
+        // The page is taller than the settings dialog, and the web settings editor does not scroll
+        // configurable content by itself.
+        return ScrollableLayout.create(inner);
     }
 
-    private static JPanel row() {
-        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        row.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-        return row;
-    }
-
-    private static JPanel labelledRow(String label, JComponent field) {
-        JPanel row = row();
-        row.add(new JBLabel(label));
+    @RequiredUIAccess
+    private static HorizontalLayout labelledRow(String label, Component field) {
+        HorizontalLayout row = HorizontalLayout.create(Space.SMALL);
+        row.add(Label.create(LocalizeValue.localizeTODO(label)));
         row.add(field);
         return row;
     }
 
-    private JPanel buildCommandHistoryRow() {
-        JButton clearButton = new JButton("Clear");
-        clearButton.setToolTipText("Remove all saved command-line history");
-        clearButton.addActionListener(e -> {
+    @RequiredUIAccess
+    private Component buildCommandHistoryRow() {
+        Button clearButton = Button.create(LocalizeValue.localizeTODO("Clear"), event -> {
             // History is per project, so every open project's is cleared.
             for (Project project : ProjectManager.getInstance().getOpenProjects()) {
                 FileManagerStateService.getInstance(project).clearCommandHistory();
             }
         });
+        clearButton.setToolTipText(LocalizeValue.localizeTODO("Remove all saved command-line history"));
 
-        JPanel row = row();
+        HorizontalLayout row = HorizontalLayout.create(Space.MEDIUM);
         row.add(mySaveCommandHistoryCheckBox);
-        row.add(Box.createHorizontalStrut(8));
         row.add(clearButton);
         return row;
     }
 
-    private JPanel buildThumbnailRow() {
+    @RequiredUIAccess
+    private Component buildThumbnailRow() {
         ThumbnailCache cache = ThumbnailCache.getInstance();
-        JBLabel cacheSizeLabel = new JBLabel(FileUtils.formatSize(cache.getCacheSize()));
-        JButton clearCacheButton = new JButton("Clear");
-        clearCacheButton.addActionListener(e -> {
+        Label cacheSizeLabel = Label.create(LocalizeValue.of(FileUtils.formatSize(cache.getCacheSize())));
+        Button clearCacheButton = Button.create(LocalizeValue.localizeTODO("Clear"), event -> {
             cache.clearCache();
-            cacheSizeLabel.setText(FileUtils.formatSize(cache.getCacheSize()));
+            cacheSizeLabel.setText(LocalizeValue.of(FileUtils.formatSize(cache.getCacheSize())));
         });
 
-        JPanel row = row();
-        row.add(new JBLabel("Thumbnail size:  "));
-        row.add(myThumbnailSizeCombo);
-        row.add(Box.createHorizontalStrut(16));
-        row.add(new JBLabel("Cache: "));
-        row.add(cacheSizeLabel);
-        row.add(Box.createHorizontalStrut(8));
-        row.add(clearCacheButton);
-        return row;
+        HorizontalLayout row = labelledRow("Thumbnail size:", myThumbnailSizeCombo);
+        // the larger gap separates the cache controls from the size choice they do not belong to
+        HorizontalLayout cacheGroup = HorizontalLayout.create(Space.SMALL);
+        cacheGroup.add(Label.create(LocalizeValue.localizeTODO("Cache:")));
+        cacheGroup.add(cacheSizeLabel);
+        cacheGroup.add(clearCacheButton);
+
+        HorizontalLayout outer = HorizontalLayout.create(Space.LARGE);
+        outer.add(row);
+        outer.add(cacheGroup);
+        return outer;
     }
 
-    private JPanel buildDateTimeRow() {
-        JPanel row = row();
-        row.add(new JBLabel("Date/time format:  "));
-        row.add(myDateTimeFormatField);
-        row.add(Box.createHorizontalStrut(8));
+    @RequiredUIAccess
+    private Component buildDateTimeRow() {
+        HorizontalLayout row = labelledRow("Date/time format:", myDateTimeFormatField);
         row.add(myDateTimePreviewLabel);
         return row;
     }
 
-    private JPanel buildExportDateTimeRow() {
-        JPanel row = row();
-        row.add(new JBLabel("Export date/time format:  "));
-        row.add(myExportDateTimeFormatField);
-        row.add(Box.createHorizontalStrut(8));
-        row.add(new JBLabel("(blank = ISO-8601 UTC)"));
+    @RequiredUIAccess
+    private Component buildExportDateTimeRow() {
+        HorizontalLayout row = labelledRow("Export date/time format:", myExportDateTimeFormatField);
+        row.add(Label.create(LocalizeValue.localizeTODO("(blank = ISO-8601 UTC)")));
         return row;
     }
 
@@ -278,11 +255,12 @@ public class TurtleCommanderConfigurable implements SearchableConfigurable, Appl
      * Renders a sample timestamp beside the pattern field, so the user sees what the format does —
      * and an inline error for a bad pattern — instead of finding out after Apply.
      */
+    @RequiredUIAccess
     private void updateDateTimePreview() {
         if (myDateTimePreviewLabel == null || myDateTimeFormatField == null) {
             return;
         }
-        String pattern = myDateTimeFormatField.getText().trim();
+        String pattern = textOf(myDateTimeFormatField);
         if (pattern.isEmpty()) {
             pattern = TurtleCommanderSettings.DEFAULT_DATE_TIME_FORMAT;
         }
@@ -294,7 +272,7 @@ public class TurtleCommanderConfigurable implements SearchableConfigurable, Appl
         catch (Exception e) {
             text = "invalid pattern";
         }
-        myDateTimePreviewLabel.setText("\u2192 " + text);
+        myDateTimePreviewLabel.setText(LocalizeValue.of("→ " + text));
     }
 
     // --- Configurable contract -------------------------------------------------------------------------
@@ -303,16 +281,16 @@ public class TurtleCommanderConfigurable implements SearchableConfigurable, Appl
     @Override
     public boolean isModified() {
         TurtleCommanderSettings.State settings = TurtleCommanderSettings.getInstance().getState();
-        return myHighlightingCheckBox.isSelected() != settings.enableFileNameHighlighting
-            || myCommandBarCheckBox.isSelected() != settings.showCommandBar
-            || mySaveCommandHistoryCheckBox.isSelected() != settings.saveCommandHistory
-            || myHideDriveSelectorCheckBox.isSelected() != settings.hideDriveSelector
-            || myHideStatusBarCheckBox.isSelected() != settings.hideStatusBar
-            || myDeleteToRecycleBinCheckBox.isSelected() != settings.deleteToRecycleBin
-            || mySortWithDirectoriesCheckBox.isSelected() != settings.sortWithDirectories
-            || myNaturalNameSortCheckBox.isSelected() != settings.naturalNameSort
-            || myCalculateDirectorySizeCheckBox.isSelected() != settings.calculateDirectorySize
-            || myOpenDirectoriesWithSingleClickCheckBox.isSelected() != settings.openDirectoriesWithSingleClick
+        return isChecked(myHighlightingCheckBox) != settings.enableFileNameHighlighting
+            || isChecked(myCommandBarCheckBox) != settings.showCommandBar
+            || isChecked(mySaveCommandHistoryCheckBox) != settings.saveCommandHistory
+            || isChecked(myHideDriveSelectorCheckBox) != settings.hideDriveSelector
+            || isChecked(myHideStatusBarCheckBox) != settings.hideStatusBar
+            || isChecked(myDeleteToRecycleBinCheckBox) != settings.deleteToRecycleBin
+            || isChecked(mySortWithDirectoriesCheckBox) != settings.sortWithDirectories
+            || isChecked(myNaturalNameSortCheckBox) != settings.naturalNameSort
+            || isChecked(myCalculateDirectorySizeCheckBox) != settings.calculateDirectorySize
+            || isChecked(myOpenDirectoriesWithSingleClickCheckBox) != settings.openDirectoriesWithSingleClick
             || !selectedOverwritePolicy().name().equals(settings.defaultOverwritePolicy)
             || !selectedViewMode().equals(settings.defaultViewMode)
             || !selectedPanelLayout().equals(settings.panelLayout)
@@ -332,16 +310,16 @@ public class TurtleCommanderConfigurable implements SearchableConfigurable, Appl
         TurtleCommanderSettings service = TurtleCommanderSettings.getInstance();
         TurtleCommanderSettings.State settings = service.getState();
 
-        settings.enableFileNameHighlighting = myHighlightingCheckBox.isSelected();
-        settings.showCommandBar = myCommandBarCheckBox.isSelected();
-        settings.saveCommandHistory = mySaveCommandHistoryCheckBox.isSelected();
-        settings.hideDriveSelector = myHideDriveSelectorCheckBox.isSelected();
-        settings.hideStatusBar = myHideStatusBarCheckBox.isSelected();
-        settings.deleteToRecycleBin = myDeleteToRecycleBinCheckBox.isSelected();
-        settings.sortWithDirectories = mySortWithDirectoriesCheckBox.isSelected();
-        settings.naturalNameSort = myNaturalNameSortCheckBox.isSelected();
-        settings.calculateDirectorySize = myCalculateDirectorySizeCheckBox.isSelected();
-        settings.openDirectoriesWithSingleClick = myOpenDirectoriesWithSingleClickCheckBox.isSelected();
+        settings.enableFileNameHighlighting = isChecked(myHighlightingCheckBox);
+        settings.showCommandBar = isChecked(myCommandBarCheckBox);
+        settings.saveCommandHistory = isChecked(mySaveCommandHistoryCheckBox);
+        settings.hideDriveSelector = isChecked(myHideDriveSelectorCheckBox);
+        settings.hideStatusBar = isChecked(myHideStatusBarCheckBox);
+        settings.deleteToRecycleBin = isChecked(myDeleteToRecycleBinCheckBox);
+        settings.sortWithDirectories = isChecked(mySortWithDirectoriesCheckBox);
+        settings.naturalNameSort = isChecked(myNaturalNameSortCheckBox);
+        settings.calculateDirectorySize = isChecked(myCalculateDirectorySizeCheckBox);
+        settings.openDirectoriesWithSingleClick = isChecked(myOpenDirectoriesWithSingleClickCheckBox);
 
         settings.defaultOverwritePolicy = selectedOverwritePolicy().name();
         settings.defaultViewMode = selectedViewMode();
@@ -372,27 +350,27 @@ public class TurtleCommanderConfigurable implements SearchableConfigurable, Appl
     public void reset() {
         TurtleCommanderSettings.State settings = TurtleCommanderSettings.getInstance().getState();
 
-        myHighlightingCheckBox.setSelected(settings.enableFileNameHighlighting);
-        myCommandBarCheckBox.setSelected(settings.showCommandBar);
-        mySaveCommandHistoryCheckBox.setSelected(settings.saveCommandHistory);
-        myHideDriveSelectorCheckBox.setSelected(settings.hideDriveSelector);
-        myHideStatusBarCheckBox.setSelected(settings.hideStatusBar);
-        myDeleteToRecycleBinCheckBox.setSelected(settings.deleteToRecycleBin);
-        mySortWithDirectoriesCheckBox.setSelected(settings.sortWithDirectories);
-        myNaturalNameSortCheckBox.setSelected(settings.naturalNameSort);
-        myCalculateDirectorySizeCheckBox.setSelected(settings.calculateDirectorySize);
-        myOpenDirectoriesWithSingleClickCheckBox.setSelected(settings.openDirectoriesWithSingleClick);
+        myHighlightingCheckBox.setValue(settings.enableFileNameHighlighting);
+        myCommandBarCheckBox.setValue(settings.showCommandBar);
+        mySaveCommandHistoryCheckBox.setValue(settings.saveCommandHistory);
+        myHideDriveSelectorCheckBox.setValue(settings.hideDriveSelector);
+        myHideStatusBarCheckBox.setValue(settings.hideStatusBar);
+        myDeleteToRecycleBinCheckBox.setValue(settings.deleteToRecycleBin);
+        mySortWithDirectoriesCheckBox.setValue(settings.sortWithDirectories);
+        myNaturalNameSortCheckBox.setValue(settings.naturalNameSort);
+        myCalculateDirectorySizeCheckBox.setValue(settings.calculateDirectorySize);
+        myOpenDirectoriesWithSingleClickCheckBox.setValue(settings.openDirectoriesWithSingleClick);
 
-        myOverwritePolicyCombo.setSelectedItem(
+        myOverwritePolicyCombo.setValue(
             TurtleCommanderSettings.getInstance().getDefaultOverwritePolicy());
-        myDefaultViewModeCombo.setSelectedItem(viewModeLabelFor(settings.defaultViewMode));
-        myPanelLayoutCombo.setSelectedItem(layoutLabelFor(settings.panelLayout));
-        myThumbnailSizeCombo.setSelectedItem(ThumbnailSize.fromName(settings.thumbnailSize));
-        myFileSizeFormatCombo.setSelectedItem(FileSizeFormat.fromName(settings.fileSizeFormat));
+        myDefaultViewModeCombo.setValue(ViewMode.fromName(settings.defaultViewMode));
+        myPanelLayoutCombo.setValue(PanelLayout.fromName(settings.panelLayout));
+        myThumbnailSizeCombo.setValue(ThumbnailSize.fromName(settings.thumbnailSize));
+        myFileSizeFormatCombo.setValue(FileSizeFormat.fromName(settings.fileSizeFormat));
 
-        myDateTimeFormatField.setText(settings.dateTimeFormat.isBlank()
+        myDateTimeFormatField.setValue(settings.dateTimeFormat.isBlank()
             ? TurtleCommanderSettings.DEFAULT_DATE_TIME_FORMAT : settings.dateTimeFormat);
-        myExportDateTimeFormatField.setText(settings.exportDateTimeFormat);
+        myExportDateTimeFormatField.setValue(settings.exportDateTimeFormat);
         updateDateTimePreview();
 
         myAppearanceEditor.resetFrom(settings);
@@ -430,77 +408,65 @@ public class TurtleCommanderConfigurable implements SearchableConfigurable, Appl
 
     // --- Reading the controls ---------------------------------------------------------------------------
 
+    private static boolean isChecked(CheckBox checkBox) {
+        return Boolean.TRUE.equals(checkBox.getValue());
+    }
+
+    /** Trimmed, with a cleared box (null value) read as blank. */
+    private static String textOf(TextBox textBox) {
+        String text = textBox.getValue();
+        return text == null ? "" : text.trim();
+    }
+
     private OverwritePolicy selectedOverwritePolicy() {
-        Object selected = myOverwritePolicyCombo.getSelectedItem();
-        return selected instanceof OverwritePolicy policy ? policy : OverwritePolicy.ASK;
+        OverwritePolicy policy = myOverwritePolicyCombo.getValue();
+        return policy != null ? policy : OverwritePolicy.ASK;
     }
 
     private String selectedViewMode() {
-        return switch (String.valueOf(myDefaultViewModeCombo.getSelectedItem())) {
-            case "List" -> "LIST";
-            case "Thumbnail" -> "THUMBNAIL";
-            case "Tree" -> "TREE";
-            default -> "TABLE";
-        };
+        ViewMode mode = myDefaultViewModeCombo.getValue();
+        return (mode != null ? mode : ViewMode.TABLE).name();
     }
 
-    private static String viewModeLabelFor(String name) {
-        return switch (name) {
-            case "LIST" -> "List";
-            case "THUMBNAIL" -> "Thumbnail";
-            case "TREE" -> "Tree";
-            default -> "Table";
-        };
+    private static LocalizeValue viewModeLabel(ViewMode mode) {
+        return LocalizeValue.localizeTODO(switch (mode) {
+            case TABLE -> "Table";
+            case LIST -> "List";
+            case THUMBNAIL -> "Thumbnail";
+            case TREE -> "Tree";
+        });
     }
 
     private String selectedPanelLayout() {
-        return switch (String.valueOf(myPanelLayoutCombo.getSelectedItem())) {
-            case "Vertical Dual-panel" -> PanelLayout.VERTICAL.name();
-            case "Single-panel" -> PanelLayout.SINGLE.name();
-            default -> PanelLayout.HORIZONTAL.name();
-        };
+        PanelLayout layout = myPanelLayoutCombo.getValue();
+        return (layout != null ? layout : PanelLayout.HORIZONTAL).name();
     }
 
-    private static String layoutLabelFor(String name) {
-        if (PanelLayout.VERTICAL.name().equals(name)) {
-            return "Vertical Dual-panel";
-        }
-        return PanelLayout.SINGLE.name().equals(name) ? "Single-panel" : "Horizontal Dual-panel";
+    private static LocalizeValue layoutLabel(PanelLayout layout) {
+        return LocalizeValue.localizeTODO(switch (layout) {
+            case HORIZONTAL -> "Horizontal Dual-panel";
+            case VERTICAL -> "Vertical Dual-panel";
+            case SINGLE -> "Single-panel";
+        });
     }
 
     private String selectedThumbnailSize() {
-        Object selected = myThumbnailSizeCombo.getSelectedItem();
-        return (selected instanceof ThumbnailSize size ? size : ThumbnailSize.SMALL).name();
+        ThumbnailSize size = myThumbnailSizeCombo.getValue();
+        return (size != null ? size : ThumbnailSize.SMALL).name();
     }
 
     private String selectedFileSizeFormat() {
-        Object selected = myFileSizeFormatCombo.getSelectedItem();
-        return (selected instanceof FileSizeFormat format ? format : FileSizeFormat.AUTO_BINARY).name();
+        FileSizeFormat format = myFileSizeFormatCombo.getValue();
+        return (format != null ? format : FileSizeFormat.AUTO_BINARY).name();
     }
 
     private String enteredDateTimeFormat() {
-        String text = myDateTimeFormatField.getText().trim();
+        String text = textOf(myDateTimeFormatField);
         return text.isEmpty() ? TurtleCommanderSettings.DEFAULT_DATE_TIME_FORMAT : text;
     }
 
     /** Blank is meaningful here — it selects the ISO-8601 UTC default — so it is kept verbatim. */
     private String enteredExportDateTimeFormat() {
-        return myExportDateTimeFormatField.getText().trim();
-    }
-
-    private static <T> DefaultListCellRenderer labelRenderer(Function<T, String> label) {
-        return new DefaultListCellRenderer() {
-            @Override
-            @SuppressWarnings("unchecked")
-            public Component getListCellRendererComponent(JList<?> list, @Nullable Object value, int index,
-                                                          boolean isSelected, boolean cellHasFocus) {
-                Component component =
-                    super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value != null) {
-                    setText(label.apply((T) value));
-                }
-                return component;
-            }
-        };
+        return textOf(myExportDateTimeFormatField);
     }
 }

@@ -3,7 +3,7 @@ package consulo.turtlecommander.action;
 import consulo.annotation.component.ActionImpl;
 import consulo.localize.LocalizeValue;
 import consulo.turtlecommander.model.FileEntry;
-import consulo.turtlecommander.ui.FileTab;
+import consulo.turtlecommander.ui.FileManagerTab;
 import consulo.turtlecommander.ui.FileTabOperationUtil;
 import consulo.util.lang.StringUtil;
 
@@ -16,7 +16,7 @@ public class CombineFilesAction extends FileContextAction.Simple {
     }
 
     /** A chunk is named {@code name.001}; the checksum sidecar is {@code name.crc}. */
-    private static boolean isSplitChunkOrCrc(FileTab tab, FileEntry entry) {
+    private static boolean isSplitChunkOrCrc(FileManagerTab tab, FileEntry entry) {
         if (!FileContextAction.isFileOutsideArchive(tab, entry)) {
             return false;
         }

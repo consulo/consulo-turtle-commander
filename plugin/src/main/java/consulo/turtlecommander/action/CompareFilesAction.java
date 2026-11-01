@@ -10,8 +10,7 @@ import consulo.project.Project;
 import consulo.turtlecommander.model.FileEntry;
 import consulo.turtlecommander.service.FileManagerStateService;
 import consulo.turtlecommander.ui.FileManagerPanel;
-import consulo.turtlecommander.ui.FileTab;
-import consulo.turtlecommander.ui.FileTabSelectionUtil;
+import consulo.turtlecommander.ui.FileManagerTab;
 import consulo.ui.ex.action.AnActionEvent;
 import consulo.virtualFileSystem.LocalFileSystem;
 import consulo.virtualFileSystem.VirtualFile;
@@ -58,7 +57,7 @@ public class CompareFilesAction extends EdtAction {
     }
 
     private static FileEntry @Nullable [] resolvePair(AnActionEvent e) {
-        FileTab tab = FileContextMenuState.getClickedTab(e);
+        FileManagerTab tab = FileContextMenuState.getClickedTab(e);
         if (tab == null) {
             return null;
         }
@@ -78,7 +77,7 @@ public class CompareFilesAction extends EdtAction {
         FileManagerPanel rightPanel = stateService.getRightPanel();
         boolean clickedIsLeft = leftPanel != null && leftPanel.getActiveTab() == tab;
         FileManagerPanel otherPanel = clickedIsLeft ? rightPanel : leftPanel;
-        FileTab otherTab = otherPanel != null ? otherPanel.getActiveTab() : null;
+        FileManagerTab otherTab = otherPanel != null ? otherPanel.getActiveTab() : null;
         if (otherTab == null) {
             return null;
         }
@@ -91,9 +90,9 @@ public class CompareFilesAction extends EdtAction {
             : new FileEntry[]{otherSelected.get(0), selected.get(0)};
     }
 
-    private static List<FileEntry> comparableEntries(FileTab tab) {
+    private static List<FileEntry> comparableEntries(FileManagerTab tab) {
         List<FileEntry> files = new ArrayList<>();
-        for (FileEntry entry : FileTabSelectionUtil.getSelectedEntries(tab)) {
+        for (FileEntry entry : tab.getSelectedEntries()) {
             if (!entry.directory() && !entry.parentLink()) {
                 files.add(entry);
             }

@@ -2,7 +2,10 @@ package consulo.turtlecommander.editor;
 
 import consulo.fileEditor.FileEditor;
 import consulo.project.Project;
-import consulo.turtlecommander.ui.TurtleCommanderToolWindowFactory;
+import consulo.disposer.Disposer;
+import consulo.turtlecommander.ui.UnifiedFileManagerView;
+import consulo.ui.annotation.RequiredUIAccess;
+import org.jspecify.annotations.Nullable;
 import consulo.ui.Component;
 import consulo.ui.Label;
 import consulo.ui.ex.awtUnsafe.TargetAWT;
@@ -17,7 +20,7 @@ import javax.swing.*;
  * @since 2026-08-30
  */
 public class TctFileEditor extends UserDataHolderBase implements FileEditor {
-    private JComponent myJComponent;
+    private @Nullable UnifiedFileManagerView myView;
     private final Project myProject;
     private final VirtualFile myVirtualFile;
 
@@ -28,15 +31,19 @@ public class TctFileEditor extends UserDataHolderBase implements FileEditor {
 
     @Override
     public JComponent getComponent() {
-        if (myJComponent == null) {
-            myJComponent = TurtleCommanderToolWindowFactory.createContent(myProject, myVirtualFile, this);
-        }
-        return myJComponent;
+        return (JComponent) TargetAWT.to(getUIComponent());
     }
 
+    /** The file manager in the unified UI, so the editor opens on every frontend. */
+    @RequiredUIAccess
     @Override
     public Component getUIComponent() {
-        return TargetAWT.wrap(getComponent());
+        UnifiedFileManagerView view = myView;
+        if (view == null) {
+            view = new UnifiedFileManagerView(myProject);
+            myView = view;
+        }
+        return view.getComponent();
     }
 
     @Override
@@ -61,6 +68,10 @@ public class TctFileEditor extends UserDataHolderBase implements FileEditor {
 
     @Override
     public void dispose() {
+        UnifiedFileManagerView view = myView;
+        if (view != null) {
+            Disposer.dispose(view);
+        }
 
     }
 }

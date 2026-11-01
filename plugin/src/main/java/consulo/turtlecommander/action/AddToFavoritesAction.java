@@ -4,7 +4,7 @@ import consulo.annotation.component.ActionImpl;
 import consulo.localize.LocalizeValue;
 import consulo.turtlecommander.model.FileEntry;
 import consulo.turtlecommander.service.FileManagerStateService;
-import consulo.turtlecommander.ui.FileTab;
+import consulo.turtlecommander.ui.FileManagerTab;
 import consulo.ui.ex.action.AnActionEvent;
 
 /** Pins the right-clicked directory to the tool window header. */
@@ -15,7 +15,7 @@ public class AddToFavoritesAction extends FileContextAction {
     }
 
     @Override
-    protected void performOnTab(FileTab tab, AnActionEvent e) {
+    protected void performOnTab(FileManagerTab tab, AnActionEvent e) {
         FileEntry entry = FileContextMenuState.getClickedEntry(e);
         FileManagerStateService stateService = ActionTargets.stateService(e);
         if (entry != null && stateService != null) {

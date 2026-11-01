@@ -3,8 +3,7 @@ package consulo.turtlecommander.action;
 import consulo.annotation.component.ActionImpl;
 import consulo.localize.LocalizeValue;
 import consulo.turtlecommander.model.FileEntry;
-import consulo.turtlecommander.ui.FileTab;
-import consulo.turtlecommander.ui.FileTabSelectionUtil;
+import consulo.turtlecommander.ui.FileManagerTab;
 import consulo.ui.ex.action.AnActionEvent;
 
 import java.util.List;
@@ -19,9 +18,9 @@ public class CopyAsCsvAction extends EntryCopyAction.Export {
 
     @Override
     protected List<FileEntry> targets(AnActionEvent e) {
-        FileTab tab = FileContextMenuState.getClickedTab(e);
+        FileManagerTab tab = FileContextMenuState.getClickedTab(e);
         List<FileEntry> selected = tab != null
-            ? FileTabSelectionUtil.getSelectedEntries(tab)
+            ? tab.getSelectedEntries()
             : List.of();
         return withFallbackToClicked(selected, FileContextMenuState.getClickedEntry(e));
     }

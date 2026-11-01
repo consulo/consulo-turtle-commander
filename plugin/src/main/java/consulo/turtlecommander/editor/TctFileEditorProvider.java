@@ -1,6 +1,7 @@
 package consulo.turtlecommander.editor;
 
 import consulo.annotation.component.ExtensionImpl;
+import consulo.application.dumb.DumbAware;
 import consulo.fileEditor.FileEditor;
 import consulo.fileEditor.FileEditorPolicy;
 import consulo.fileEditor.FileEditorProvider;
@@ -9,11 +10,14 @@ import consulo.ui.annotation.RequiredUIAccess;
 import consulo.virtualFileSystem.VirtualFile;
 
 /**
+ * Dumb aware: the explorer reads no index, and a provider which is not is skipped while the project indexes - which
+ * is exactly when the editors open at startup, so the explorer tab was never restored.
+ *
  * @author VISTALL
  * @since 2026-08-30
  */
 @ExtensionImpl
-public class TctFileEditorProvider implements FileEditorProvider {
+public class TctFileEditorProvider implements FileEditorProvider, DumbAware {
     @Override
     public boolean accept(Project project, VirtualFile virtualFile) {
         return virtualFile instanceof TctVirtualFile;

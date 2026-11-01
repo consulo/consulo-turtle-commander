@@ -6,6 +6,7 @@ import consulo.ui.ex.action.AnAction;
 import consulo.ui.ex.action.AnActionEvent;
 import consulo.ui.ex.action.AnActionWithSyncUpdate;
 import consulo.ui.ex.action.CustomShortcutSet;
+import consulo.ui.ex.action.ShortcutSet;
 import consulo.ui.image.Image;
 import org.jspecify.annotations.Nullable;
 
@@ -21,6 +22,8 @@ import javax.swing.KeyStroke;
  * with {@link DumbAware}.
  */
 public abstract class EdtAction extends AnAction implements DumbAware, AnActionWithSyncUpdate {
+    private @Nullable ShortcutSet myDefaultShortcutSet;
+
     protected EdtAction() {
         super();
     }
@@ -57,7 +60,17 @@ public abstract class EdtAction extends AnAction implements DumbAware, AnActionW
         }
         KeyStroke keyStroke = KeyStroke.getKeyStroke(shortcut);
         if (keyStroke != null) {
-            setShortcutSet(new CustomShortcutSet(keyStroke));
+            myDefaultShortcutSet = new CustomShortcutSet(keyStroke);
+            setShortcutSet(myDefaultShortcutSet);
         }
+    }
+
+    /**
+     * The keystroke given to {@link #setDefaultShortcut}, or null. The action manager swaps the action's own shortcut
+     * set for the keymap's when it registers the action, and no keymap holds these - so whoever binds the plugin's
+     * keys to a component reads the default from here.
+     */
+    public @Nullable ShortcutSet getDefaultShortcutSet() {
+        return myDefaultShortcutSet;
     }
 }

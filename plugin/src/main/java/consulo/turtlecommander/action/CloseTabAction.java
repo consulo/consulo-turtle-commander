@@ -6,7 +6,7 @@ import consulo.ui.ex.action.AnActionEvent;
 
 /** Closes the right-clicked tab, or the active one when triggered by shortcut. */
 @ActionImpl(id = "TurtleCommander.CloseTab")
-public class CloseTabAction extends TabContextAction {
+public class CloseTabAction extends TabContextAction implements UnifiedPaneAction {
     public CloseTabAction() {
         super(LocalizeValue.localizeTODO("Close"));
         setDefaultShortcut("ctrl W");

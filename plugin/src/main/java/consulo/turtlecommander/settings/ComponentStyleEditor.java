@@ -1,57 +1,83 @@
 package consulo.turtlecommander.settings;
 
-import consulo.ui.ex.awt.ComboBox;
+import consulo.localize.LocalizeValue;
+import consulo.ui.CheckBox;
+import consulo.ui.ComboBox;
+import consulo.ui.Component;
+import consulo.ui.FontBox;
+import consulo.ui.IntBox;
+import consulo.ui.Label;
+import consulo.ui.Space;
+import consulo.ui.StaticPosition;
+import consulo.ui.annotation.RequiredUIAccess;
+import consulo.ui.layout.HorizontalLayout;
+import consulo.ui.layout.TableLayout;
 import org.jspecify.annotations.Nullable;
 
-import javax.swing.DefaultComboBoxModel;
-import javax.swing.JSpinner;
-import javax.swing.SpinnerNumberModel;
-import java.awt.Dimension;
 import java.awt.Font;
-import java.awt.GraphicsEnvironment;
-import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * The font and colour controls for one styled component — the panel, the tab bar, the status bar
  * and so on. Also holds the "legacy" family and size, which are the pre-per-component settings a
  * user may still be carrying, so an untouched editor doesn't silently reset them.
  *
- * <p>The family picker is a plain combo over the installed families: the platform's own
- * {@code FontComboBox} lives in an impl module that plugins can't depend on.
+ * <p>{@link FontBox} has no "no family" entry, so the default family is a check box beside it.
  */
 public class ComponentStyleEditor {
+    /** Which groups of rows the form shows; a component only gets the rows it can actually render. */
+    public enum Section {
+        /** Font family, size, style and colour. */
+        FONT,
+        BACKGROUND,
+        /** Selected and active-selected colours - only the file panel has a selection. */
+        SELECTION
+    }
+
     /** The size a component falls back to when neither the style nor a legacy setting has one. */
     private static final int DEFAULT_FONT_SIZE = 13;
+    private static final int MIN_FONT_SIZE = 8;
+    private static final int MAX_FONT_SIZE = 48;
 
-    private static final String DEFAULT_FAMILY_LABEL = "Default";
-    private static final String[] STYLE_LABELS = {"Plain", "Bold", "Italic", "Bold Italic"};
+    private static final List<Integer> FONT_STYLES = List.of(Font.PLAIN, Font.BOLD, Font.ITALIC, Font.BOLD | Font.ITALIC);
 
     private final String myLabel;
 
-    private final ComboBox<String> myFontCombo;
-    private final JSpinner mySizeSpinner = new JSpinner(new SpinnerNumberModel(DEFAULT_FONT_SIZE, 8, 48, 1));
-    private final ComboBox<String> myStyleCombo = new ComboBox<>(new DefaultComboBoxModel<>(STYLE_LABELS));
+    private final FontBox myFontBox;
+    private final CheckBox myDefaultFontCheck;
+    private final IntBox mySizeBox;
+    private final ComboBox<Integer> myStyleBox;
 
-    private final ColorPickerButton myColorButton = new ColorPickerButton();
-    private final ColorPickerButton myBackgroundColorButton = new ColorPickerButton();
-    private final ColorPickerButton mySelectedColorButton = new ColorPickerButton();
-    private final ColorPickerButton myActiveSelectedColorButton = new ColorPickerButton();
+    private final UnifiedColorPicker myColorPicker;
+    private final UnifiedColorPicker myBackgroundColorPicker;
+    private final UnifiedColorPicker mySelectedColorPicker;
+    private final UnifiedColorPicker myActiveSelectedColorPicker;
 
+    private Set<Section> mySections = EnumSet.of(Section.FONT);
+    private @Nullable Component myComponent;
+
+    @RequiredUIAccess
     public ComponentStyleEditor(String label, ComponentStyle style) {
         this(label, style, "", 0);
     }
 
+    @RequiredUIAccess
     public ComponentStyleEditor(String label, ComponentStyle style, String legacyFamily, int legacySize) {
         myLabel = label;
 
-        List<String> families = new ArrayList<>();
-        families.add(DEFAULT_FAMILY_LABEL);
-        families.addAll(List.of(GraphicsEnvironment.getLocalGraphicsEnvironment()
-            .getAvailableFontFamilyNames()));
-        myFontCombo = new ComboBox<>(new DefaultComboBoxModel<>(families.toArray(new String[0])));
-        myFontCombo.setPreferredSize(new Dimension(160, myFontCombo.getPreferredSize().height));
-        mySizeSpinner.setPreferredSize(new Dimension(60, mySizeSpinner.getPreferredSize().height));
+        myFontBox = FontBox.create();
+        myDefaultFontCheck = CheckBox.create(LocalizeValue.localizeTODO("Default"));
+        myDefaultFontCheck.addValueListener(event -> updateFontBoxEnabled());
+        mySizeBox = IntBox.create(DEFAULT_FONT_SIZE).withRange(MIN_FONT_SIZE, MAX_FONT_SIZE);
+        myStyleBox = ComboBox.create(FONT_STYLES);
+        myStyleBox.setTextRenderer(ComponentStyleEditor::styleLabel);
+
+        myColorPicker = new UnifiedColorPicker();
+        myBackgroundColorPicker = new UnifiedColorPicker();
+        mySelectedColorPicker = new UnifiedColorPicker();
+        myActiveSelectedColorPicker = new UnifiedColorPicker();
 
         resetFrom(style, legacyFamily, legacySize);
     }
@@ -60,58 +86,86 @@ public class ComponentStyleEditor {
         return myLabel;
     }
 
-    public ComboBox<String> getFontCombo() {
-        return myFontCombo;
+    /**
+     * Chooses the rows {@link #getComponent()} builds; only {@link Section#FONT} by default. Takes effect only
+     * before the form is first built.
+     */
+    public ComponentStyleEditor withSections(Set<Section> sections) {
+        mySections = sections.isEmpty() ? EnumSet.noneOf(Section.class) : EnumSet.copyOf(sections);
+        return this;
     }
 
-    public JSpinner getSizeSpinner() {
-        return mySizeSpinner;
+    /** The label/field form, built once: the controls are single-parent components. */
+    @RequiredUIAccess
+    public Component getComponent() {
+        Component component = myComponent;
+        if (component == null) {
+            component = buildForm();
+            myComponent = component;
+        }
+        return component;
     }
 
-    public ComboBox<String> getStyleCombo() {
-        return myStyleCombo;
+    @RequiredUIAccess
+    private Component buildForm() {
+        TableLayout form = TableLayout.create(StaticPosition.TOP);
+        int row = 0;
+        if (mySections.contains(Section.FONT)) {
+            row = addRow(form, row, "Font:", HorizontalLayout.create(Space.SMALL).add(myFontBox).add(myDefaultFontCheck));
+            row = addRow(form, row, "Size:", mySizeBox);
+            row = addRow(form, row, "Style:", myStyleBox);
+            row = addRow(form, row, "Color:", myColorPicker.getComponent());
+        }
+        if (mySections.contains(Section.BACKGROUND)) {
+            row = addRow(form, row, "Background:", myBackgroundColorPicker.getComponent());
+        }
+        if (mySections.contains(Section.SELECTION)) {
+            row = addRow(form, row, "Selected:", mySelectedColorPicker.getComponent());
+            addRow(form, row, "Active selected:", myActiveSelectedColorPicker.getComponent());
+        }
+        return form;
     }
 
-    public ColorPickerButton getColorButton() {
-        return myColorButton;
+    @RequiredUIAccess
+    private static int addRow(TableLayout form, int row, String text, Component field) {
+        // the table lines the labels up in their column; a label takes no width of its own on every frontend
+        form.add(Label.create(LocalizeValue.localizeTODO(text)), TableLayout.cell(row, 0));
+        form.add(field, TableLayout.cell(row, 1));
+        return row + 1;
     }
 
-    public ColorPickerButton getBackgroundColorButton() {
-        return myBackgroundColorButton;
-    }
-
-    public ColorPickerButton getSelectedColorButton() {
-        return mySelectedColorButton;
-    }
-
-    public ColorPickerButton getActiveSelectedColorButton() {
-        return myActiveSelectedColorButton;
-    }
-
+    @RequiredUIAccess
     public void resetFrom(ComponentStyle style) {
         resetFrom(style, "", 0);
     }
 
+    @RequiredUIAccess
     public void resetFrom(ComponentStyle style, String legacyFamily, int legacySize) {
-        myFontCombo.setSelectedItem(familyOf(style, legacyFamily));
-        mySizeSpinner.setValue(sizeOf(style, legacySize));
-        myStyleCombo.setSelectedIndex(styleIndexOf(style.fontStyle));
+        String family = familyValueOf(style, legacyFamily);
+        myDefaultFontCheck.setValue(family.isEmpty(), false);
+        if (!family.isEmpty()) {
+            myFontBox.setValue(family, false);
+        }
+        updateFontBoxEnabled();
+        mySizeBox.setValue(sizeOf(style, legacySize), false);
+        myStyleBox.setValue(FONT_STYLES.contains(style.fontStyle) ? style.fontStyle : Font.PLAIN, false);
 
-        myColorButton.setColor(style.parsedFontColor());
-        myBackgroundColorButton.setColor(style.parsedBackgroundColor());
-        mySelectedColorButton.setColor(style.parsedSelectedColor());
-        myActiveSelectedColorButton.setColor(style.parsedActiveSelectedColor());
+        myColorPicker.setColor(style.parsedFontColor());
+        myBackgroundColorPicker.setColor(style.parsedBackgroundColor());
+        mySelectedColorPicker.setColor(style.parsedSelectedColor());
+        myActiveSelectedColorPicker.setColor(style.parsedActiveSelectedColor());
     }
 
     public void applyTo(ComponentStyle style) {
-        Object family = myFontCombo.getSelectedItem();
-        style.fontFamily = family == null || DEFAULT_FAMILY_LABEL.equals(family) ? "" : family.toString();
-        style.fontSize = ((Number) mySizeSpinner.getValue()).intValue();
-        style.fontStyle = styleOfIndex(myStyleCombo.getSelectedIndex());
-        style.fontColor = myColorButton.getColorHex();
-        style.backgroundColor = myBackgroundColorButton.getColorHex();
-        style.selectedColor = mySelectedColorButton.getColorHex();
-        style.activeSelectedColor = myActiveSelectedColorButton.getColorHex();
+        String family = myFontBox.getValue();
+        style.fontFamily = Boolean.TRUE.equals(myDefaultFontCheck.getValue()) || family == null ? "" : family;
+        style.fontSize = currentSize();
+        Integer fontStyle = myStyleBox.getValue();
+        style.fontStyle = fontStyle != null ? fontStyle : Font.PLAIN;
+        style.fontColor = myColorPicker.getColorHex();
+        style.backgroundColor = myBackgroundColorPicker.getColorHex();
+        style.selectedColor = mySelectedColorPicker.getColorHex();
+        style.activeSelectedColor = myActiveSelectedColorPicker.getColorHex();
     }
 
     /**
@@ -135,13 +189,22 @@ public class ComponentStyleEditor {
         return isModified(style, "", 0);
     }
 
-    private static String familyValueOf(ComponentStyle style, String legacyFamily) {
-        return style.fontFamily.isEmpty() ? legacyFamily : style.fontFamily;
+    @RequiredUIAccess
+    private void updateFontBoxEnabled() {
+        myFontBox.setEnabled(!Boolean.TRUE.equals(myDefaultFontCheck.getValue()));
     }
 
-    private static String familyOf(ComponentStyle style, String legacyFamily) {
-        String family = familyValueOf(style, legacyFamily);
-        return family.isEmpty() ? DEFAULT_FAMILY_LABEL : family;
+    /**
+     * An emptied box reads as the default size. Not clamped: a stored size outside the range must read back
+     * unchanged, or an untouched editor would report itself modified.
+     */
+    private int currentSize() {
+        Integer size = mySizeBox.getValue();
+        return size != null ? size : DEFAULT_FONT_SIZE;
+    }
+
+    private static String familyValueOf(ComponentStyle style, String legacyFamily) {
+        return style.fontFamily.isEmpty() ? legacyFamily : style.fontFamily;
     }
 
     private static int sizeOf(ComponentStyle style, int legacySize) {
@@ -151,21 +214,15 @@ public class ComponentStyleEditor {
         return legacySize > 0 ? legacySize : DEFAULT_FONT_SIZE;
     }
 
-    private static int styleIndexOf(int fontStyle) {
-        return switch (fontStyle) {
-            case Font.BOLD -> 1;
-            case Font.ITALIC -> 2;
-            case Font.BOLD | Font.ITALIC -> 3;
-            default -> 0;
-        };
-    }
-
-    private static int styleOfIndex(int index) {
-        return switch (index) {
-            case 1 -> Font.BOLD;
-            case 2 -> Font.ITALIC;
-            case 3 -> Font.BOLD | Font.ITALIC;
-            default -> Font.PLAIN;
-        };
+    private static LocalizeValue styleLabel(@Nullable Integer fontStyle) {
+        if (fontStyle == null) {
+            return LocalizeValue.empty();
+        }
+        return LocalizeValue.localizeTODO(switch (fontStyle) {
+            case Font.BOLD -> "Bold";
+            case Font.ITALIC -> "Italic";
+            case Font.BOLD | Font.ITALIC -> "Bold Italic";
+            default -> "Plain";
+        });
     }
 }

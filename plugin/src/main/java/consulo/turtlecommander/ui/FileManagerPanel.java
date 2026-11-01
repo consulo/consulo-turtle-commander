@@ -56,7 +56,7 @@ import java.util.function.Supplier;
  * One side of the dual-pane view: a tab strip of {@link FileTab}s (plus any search-result tabs),
  * the view-mode toggle overlay, and the tab drag-and-drop that can move a tab to the other panel.
  */
-public class FileManagerPanel extends JPanel {
+public class FileManagerPanel extends JPanel implements FileManagerTabStrip {
     private static final int CLOSED_TABS_LIMIT = 32;
     private static final int DRAG_THRESHOLD_PX = 5;
 

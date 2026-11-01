@@ -2,8 +2,7 @@ package consulo.turtlecommander.action;
 
 import consulo.annotation.component.ActionImpl;
 import consulo.localize.LocalizeValue;
-import consulo.turtlecommander.ui.FileTab;
-import consulo.turtlecommander.ui.FileTabNavigationUtil;
+import consulo.turtlecommander.ui.FileManagerTab;
 import consulo.ui.ex.action.AnActionEvent;
 
 /** Re-lists the current directory. */
@@ -14,7 +13,7 @@ public class RefreshAction extends FileManagerAction {
     }
 
     @Override
-    protected void performOnTab(FileTab tab, AnActionEvent e) {
-        FileTabNavigationUtil.refresh(tab, true);
+    protected void performOnTab(FileManagerTab tab, AnActionEvent e) {
+        tab.refresh();
     }
 }

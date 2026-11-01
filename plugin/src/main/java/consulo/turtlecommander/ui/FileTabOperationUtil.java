@@ -1,18 +1,18 @@
 package consulo.turtlecommander.ui;
 
+import consulo.application.Application;
 import consulo.application.progress.ProgressIndicator;
 import consulo.fileEditor.FileEditorManager;
 import consulo.localize.LocalizeValue;
 import consulo.project.Project;
-import consulo.turtlecommander.dialog.CombineFilesDialog;
-import consulo.turtlecommander.dialog.CreateLinkDialog;
-import consulo.turtlecommander.dialog.DeleteDialog;
-import consulo.turtlecommander.dialog.ExtractDialog;
-import consulo.turtlecommander.dialog.InputDialog;
-import consulo.turtlecommander.dialog.MultiRenameDialog;
-import consulo.turtlecommander.dialog.PackDialog;
-import consulo.turtlecommander.dialog.SplitFileDialog;
-import consulo.turtlecommander.dialog.TransferDialog;
+import consulo.turtlecommander.dialog.CombineFilesDialogDescriptor;
+import consulo.turtlecommander.dialog.CreateLinkDialogDescriptor;
+import consulo.turtlecommander.dialog.DeleteDialogDescriptor;
+import consulo.turtlecommander.dialog.ExtractDialogDescriptor;
+import consulo.turtlecommander.dialog.MultiRenameDialogDescriptor;
+import consulo.turtlecommander.dialog.PackDialogDescriptor;
+import consulo.turtlecommander.dialog.SplitFileDialogDescriptor;
+import consulo.turtlecommander.dialog.TransferDialogDescriptor;
 import consulo.turtlecommander.filetype.TurtleCommanderNotifications;
 import consulo.turtlecommander.model.FileEntry;
 import consulo.turtlecommander.operation.ArchiveFormat;
@@ -39,7 +39,8 @@ import consulo.turtlecommander.vfs.VfsStackEntry;
 import consulo.turtlecommander.vfs.VirtualFileSystem;
 import consulo.turtlecommander.vfs.VirtualFileSystemRegistry;
 import consulo.turtlecommander.vfs.ZipVirtualFileSystem;
-import consulo.ui.ex.awt.Messages;
+import consulo.ui.ex.dialog.DialogService;
+import consulo.ui.InputBoxBuilder;
 import consulo.util.lang.StringUtil;
 import consulo.virtualFileSystem.LocalFileSystem;
 import consulo.virtualFileSystem.VirtualFile;
@@ -49,11 +50,17 @@ import java.awt.Desktop;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.function.Consumer;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
+import consulo.ui.Alert;
+import consulo.ui.ex.dialog.DialogDescriptor;
+import java.util.concurrent.CompletableFuture;
+import java.io.IOException;
+import consulo.ui.annotation.RequiredUIAccess;
 
 /**
  * The file operations a panel can start: copy, move, delete, link, pack, extract, split, combine,
@@ -71,17 +78,17 @@ public final class FileTabOperationUtil {
 
     // --- Copy and move ---------------------------------------------------------------------------------
 
-    public static void performCopy(FileTab tab) {
+    public static void performCopy(FileManagerTab tab) {
         Path destination = transferDestination(tab, "copy");
         if (destination != null) {
-            performCopyEntries(tab, FileTabSelectionUtil.getSelectedEntries(tab), destination, null);
+            performCopyEntries(tab, tab.getSelectedEntries(), destination, null);
         }
     }
 
-    public static void performMove(FileTab tab) {
+    public static void performMove(FileManagerTab tab) {
         Path destination = transferDestination(tab, "move");
         if (destination != null) {
-            performMoveEntries(tab, FileTabSelectionUtil.getSelectedEntries(tab), destination, null, null);
+            performMoveEntries(tab, tab.getSelectedEntries(), destination, null, null);
         }
     }
 
@@ -89,51 +96,51 @@ public final class FileTabOperationUtil {
      * The other panel's directory. Inside an archive that is the archive-internal path rather than
      * the real filesystem one, so entries land inside the archive as the user expects.
      */
-    private static @Nullable Path transferDestination(FileTab tab, String verb) {
-        FileTab otherTab = tab.getOtherPanelTab();
+    private static @Nullable Path transferDestination(FileManagerTab tab, String verb) {
+        FileManagerTab otherTab = tab.getOtherPanelTab();
         VirtualFileSystem otherVfs = otherTab != null ? otherTab.getCurrentVfs() : null;
         if (otherVfs != null && otherVfs.isReadOnly()) {
             tab.fileErrorNotification("Cannot " + verb + " into a read-only archive");
             return null;
         }
         if (otherTab != null && otherTab.isInsideArchive()) {
+            // an archive opened through the platform's archive file systems has no file system of its own here,
+            // and those are read only
+            if (otherVfs == null) {
+                tab.fileErrorNotification("Cannot " + verb + " into a read-only archive");
+                return null;
+            }
             return otherTab.getCurrentPath();
         }
         return tab.getOtherPanelPath();
     }
 
-    public static void performCopyEntries(FileTab tab, List<FileEntry> selected, Path destination,
+    public static void performCopyEntries(FileManagerTab tab, List<FileEntry> selected, Path destination,
                                           @Nullable String destinationDisplayPath) {
         if (selected.isEmpty()) {
             return;
         }
         String displayPath = resolveDisplayPath(tab, destination, destinationDisplayPath);
-        TransferDialog dialog = new TransferDialog(tab.getProject(), "Copy", selected, destination, displayPath);
-        if (!dialog.showAndGet()) {
-            return;
-        }
-        runTransfer(tab, sourcePaths(selected), dialog.getTargetDirectory(), dialog.getPolicy(),
-            "Copying files", "Copying", "copy",
-            tab.getFileOps()::copyFilesWithProgress, null);
+        TransferDialogDescriptor descriptor = new TransferDialogDescriptor("Copy", selected, destination, displayPath);
+        showDialog(descriptor, () -> runTransfer(tab, sourcePaths(selected), descriptor.getTargetDirectory(),
+            descriptor.getPolicy(), "Copying files", "Copying", "copy",
+            tab.getFileOps()::copyFilesWithProgress, null));
     }
 
-    public static void performMoveEntries(FileTab tab, List<FileEntry> selected, Path destination,
+    public static void performMoveEntries(FileManagerTab tab, List<FileEntry> selected, Path destination,
                                           @Nullable String destinationDisplayPath,
                                           @Nullable Runnable onTransferFinished) {
         if (selected.isEmpty()) {
             return;
         }
         String displayPath = resolveDisplayPath(tab, destination, destinationDisplayPath);
-        TransferDialog dialog = new TransferDialog(tab.getProject(), "Move", selected, destination, displayPath);
-        if (!dialog.showAndGet()) {
-            return;
-        }
-        runTransfer(tab, sourcePaths(selected), dialog.getTargetDirectory(), dialog.getPolicy(),
-            "Moving files", "Moving", "move",
-            tab.getFileOps()::moveFilesWithProgress, onTransferFinished);
+        TransferDialogDescriptor descriptor = new TransferDialogDescriptor("Move", selected, destination, displayPath);
+        showDialog(descriptor, () -> runTransfer(tab, sourcePaths(selected), descriptor.getTargetDirectory(),
+            descriptor.getPolicy(), "Moving files", "Moving", "move",
+            tab.getFileOps()::moveFilesWithProgress, onTransferFinished));
     }
 
-    private static String resolveDisplayPath(FileTab tab, Path destination, @Nullable String provided) {
+    private static String resolveDisplayPath(FileManagerTab tab, Path destination, @Nullable String provided) {
         if (provided != null) {
             return provided;
         }
@@ -162,18 +169,27 @@ public final class FileTabOperationUtil {
      *                           then no transfer started. Used by cut-paste to settle its buffer
      *                           against the actual outcome.
      */
-    private static void runTransfer(FileTab tab, List<Path> sources, Path destination,
+    private static void runTransfer(FileManagerTab tab, List<Path> sources, Path destination,
                                     OverwritePolicy initialPolicy, String taskTitle, String progressVerb,
                                     String errorVerb, TransferOp op,
                                     @Nullable Runnable onTransferFinished) {
         BackgroundProgress.run(tab.getProject(), LocalizeValue.localizeTODO(taskTitle), indicator -> {
+            // checked here rather than in the dialog: on a dead network destination the stat blocks for the SMB
+            // timeout
+            indicator.setText(LocalizeValue.localizeTODO("Checking destination..."));
+            String destinationError = prepareDestination(destination);
+            if (destinationError != null) {
+                notifyError(tab, destinationError);
+                return;
+            }
+
             indicator.setText(LocalizeValue.localizeTODO("Counting files..."));
             int totalFiles = FileUtils.countFiles(sources);
             indicator.setIndeterminate(false);
 
             op.run(sources, destination, initialPolicy,
                 countingProgress(indicator, progressVerb, totalFiles),
-                FileTabOperationUtil::askOverwriteConfirm,
+                path -> askOverwriteConfirm(tab, path),
                 errorNotifier(tab, "Failed to " + errorVerb),
                 indicator::isCanceled);
 
@@ -186,8 +202,8 @@ public final class FileTabOperationUtil {
 
     // --- Delete ------------------------------------------------------------------------------------------
 
-    public static void performDelete(FileTab tab, boolean forcePermanent) {
-        List<FileEntry> selected = FileTabSelectionUtil.getSelectedEntries(tab);
+    public static void performDelete(FileManagerTab tab, boolean forcePermanent) {
+        List<FileEntry> selected = tab.getSelectedEntries();
         if (selected.isEmpty()) {
             return;
         }
@@ -200,16 +216,42 @@ public final class FileTabOperationUtil {
         boolean useRecycleBin = wantsRecycleBin && tab.getFileOps().isRecycleBinAvailable();
         boolean downgraded = wantsRecycleBin && !useRecycleBin;
 
-        DeleteDialog dialog = new DeleteDialog(tab.getProject(), selected, useRecycleBin,
+        DeleteDialogDescriptor descriptor = new DeleteDialogDescriptor(selected, useRecycleBin,
             downgraded ? "Recycle Bin is not available on this system \u2014 items will be deleted permanently." : null,
             downgraded ? "Turn off \"Delete to Recycle Bin\" and don't show this note again" : null);
-        if (!dialog.showAndGet()) {
-            return;
-        }
-        if (downgraded && dialog.isCheckboxSelected()) {
-            TurtleCommanderSettings.getInstance().getState().deleteToRecycleBin = false;
-        }
+        showDialog(descriptor, () -> {
+            if (downgraded && descriptor.isCheckboxSelected()) {
+                TurtleCommanderSettings.getInstance().getState().deleteToRecycleBin = false;
+            }
+            delete(tab, selected, useRecycleBin);
+        });
+    }
 
+    /** Shows a unified dialog and runs {@code onOk} when it closes with OK - a cancelled one completes exceptionally. */
+    @RequiredUIAccess
+    private static void showDialog(DialogDescriptor descriptor, Runnable onOk) {
+        Application.get().getInstance(DialogService.class).build(descriptor).showAsync().whenComplete((value, error) -> {
+            if (error == null) {
+                onOk.run();
+            }
+        });
+    }
+
+    /** Returns an error message, or {@code null} when the destination is a directory or could be made one. */
+    private static @Nullable String prepareDestination(Path destination) {
+        if (Files.exists(destination)) {
+            return Files.isDirectory(destination) ? null : "Destination is not a directory:\n" + destination;
+        }
+        try {
+            Files.createDirectories(destination);
+            return null;
+        }
+        catch (IOException e) {
+            return "Failed to create destination directory:\n" + e.getMessage();
+        }
+    }
+
+    private static void delete(FileManagerTab tab, List<FileEntry> selected, boolean useRecycleBin) {
         List<Path> sourcePaths = sourcePaths(selected);
         String taskTitle = useRecycleBin ? "Moving files to Recycle Bin" : "Deleting files";
         String progressVerb = useRecycleBin ? "Moving" : "Deleting";
@@ -240,27 +282,36 @@ public final class FileTabOperationUtil {
 
     // --- Create ------------------------------------------------------------------------------------------
 
-    public static void performCreateDirectory(FileTab tab) {
-        InputDialog dialog = new InputDialog(tab.getProject(), "New Directory", "Enter directory name:", "");
-        if (!dialog.showAndGet()) {
-            return;
-        }
-        String name = dialog.getInputValue();
-        if (name.isBlank()) {
-            return;
-        }
+    public static void performCreateDirectory(FileManagerTab tab) {
+        askName(LocalizeValue.localizeTODO("New Directory"), LocalizeValue.localizeTODO("Enter directory name:"),
+            name -> createDirectory(tab, name));
+    }
 
+    /** Asks for a name in the unified prompt, which every frontend shows; a blank or cancelled answer does nothing. */
+    private static void askName(LocalizeValue title, LocalizeValue label, Consumer<String> onName) {
+        InputBoxBuilder.text()
+            .title(title)
+            .text(label)
+            .showAsync()
+            .whenComplete((name, error) -> {
+                if (error == null && name != null && !name.isBlank()) {
+                    onName.accept(name);
+                }
+            });
+    }
+
+    private static void createDirectory(FileManagerTab tab, String name) {
         UiTask.background(() -> {
             try {
                 tab.getFileOps().createDirectory(tab.getCurrentPath(), name);
                 if (tab.getCurrentVfs() != null) {
-                    FileTabVfsUtil.refreshAfterVfsChange(tab, name);
+                    refreshAfterVfsChange(tab, name);
                 }
                 else {
                     tab.invalidateFreeSpaceCache();
-                    FileTabNavigationUtil.navigateTo(tab, tab.getCurrentPath(), name, true);
+                    tab.navigateTo(tab.getCurrentPath(), name);
                 }
-                UiTask.ui(tab::refreshOtherPanel);
+                tab.getUIAccess().give(tab::refreshOtherPanel);
             }
             catch (Exception e) {
                 notifyError(tab, "Create directory failed: " + FileUtils.fileErrorMessage(e));
@@ -268,34 +319,30 @@ public final class FileTabOperationUtil {
         });
     }
 
-    public static void performCreateFile(FileTab tab) {
-        InputDialog dialog = new InputDialog(tab.getProject(), "New File", "Enter file name:", "");
-        if (!dialog.showAndGet()) {
-            return;
-        }
-        String name = dialog.getInputValue();
-        if (name.isBlank()) {
-            return;
-        }
+    public static void performCreateFile(FileManagerTab tab) {
+        askName(LocalizeValue.localizeTODO("New File"), LocalizeValue.localizeTODO("Enter file name:"),
+            name -> createFile(tab, name));
+    }
 
+    private static void createFile(FileManagerTab tab, String name) {
         UiTask.background(() -> {
             try {
                 Path filePath = Files.createFile(tab.getCurrentPath().resolve(name));
                 tab.getFileOps().invalidateListingCache(tab.getCurrentPath());
                 if (tab.getCurrentVfs() != null) {
-                    FileTabVfsUtil.refreshAfterVfsChange(tab, name);
+                    refreshAfterVfsChange(tab, name);
                 }
                 else {
                     tab.invalidateFreeSpaceCache();
-                    FileTabNavigationUtil.navigateTo(tab, tab.getCurrentPath(), name, true);
+                    tab.navigateTo(tab.getCurrentPath(), name);
                 }
-                UiTask.ui(tab::refreshOtherPanel);
+                tab.getUIAccess().give(tab::refreshOtherPanel);
 
                 // Inside an archive the refresh may have repacked and re-rooted the filesystem, so
                 // the entry is resolved against the current path rather than the pre-refresh one.
                 Path entryPath = tab.getCurrentVfs() != null ? tab.getCurrentPath().resolve(name) : filePath;
                 FileEntry entry = FileEntry.builder(name, entryPath).build();
-                UiTask.ui(() -> openFile(tab, entry));
+                tab.getUIAccess().give(() -> openFile(tab, entry));
             }
             catch (Exception e) {
                 notifyError(tab, "Create file failed: " + FileUtils.fileErrorMessage(e));
@@ -309,16 +356,16 @@ public final class FileTabOperationUtil {
      * the UI thread; the other panel is then refreshed with the new link selected, without stealing
      * focus from the active panel.
      */
-    public static void performCreateLink(FileTab tab) {
+    public static void performCreateLink(FileManagerTab tab) {
         if (tab.isInsideArchive()) {
             tab.fileErrorNotification("Cannot create symbolic links inside an archive");
             return;
         }
-        List<FileEntry> selected = withoutParentLink(FileTabSelectionUtil.getSelectedEntries(tab));
+        List<FileEntry> selected = withoutParentLink(tab.getSelectedEntries());
         if (selected.isEmpty()) {
             return;
         }
-        FileTab otherTab = tab.getOtherPanelTab();
+        FileManagerTab otherTab = tab.getOtherPanelTab();
         if (otherTab != null && otherTab.getCurrentVfs() != null) {
             tab.fileErrorNotification("Cannot create symbolic links inside an archive");
             return;
@@ -329,18 +376,20 @@ public final class FileTabOperationUtil {
         }
         String displayPath = resolveDisplayPath(tab, destination, null);
 
-        CreateLinkDialog dialog = new CreateLinkDialog(tab.getProject(), selected, destination, displayPath);
-        if (!dialog.showAndGet()) {
-            return;
-        }
-        List<CreateLinkDialog.LinkSpec> specs = dialog.getSpecs();
-        if (specs.isEmpty()) {
-            return;
-        }
+        CreateLinkDialogDescriptor dialog = new CreateLinkDialogDescriptor(selected, destination, displayPath);
+        // its own showAsync: it checks the link paths off the UI thread and closes itself once they pass
+        dialog.showAsync().whenComplete((value, error) -> {
+            List<CreateLinkDialogDescriptor.LinkSpec> specs = error == null ? dialog.getSpecs() : List.of();
+            if (!specs.isEmpty()) {
+                createLinks(tab, specs);
+            }
+        });
+    }
 
+    private static void createLinks(FileManagerTab tab, List<CreateLinkDialogDescriptor.LinkSpec> specs) {
         UiTask.background(() -> {
             int failures = 0;
-            for (CreateLinkDialog.LinkSpec spec : specs) {
+            for (CreateLinkDialogDescriptor.LinkSpec spec : specs) {
                 try {
                     if (spec.hard()) {
                         tab.getFileOps().createHardLink(spec.link(), spec.target());
@@ -357,14 +406,13 @@ public final class FileTabOperationUtil {
             if (failures == specs.size()) {
                 return;
             }
-            FileTab target = tab.getOtherPanelTab();
+            FileManagerTab target = tab.getOtherPanelTab();
             if (target == null) {
-                UiTask.ui(tab::refreshOtherPanel);
+                tab.getUIAccess().give(tab::refreshOtherPanel);
                 return;
             }
             Path linkName = specs.size() == 1 ? specs.get(0).link().getFileName() : null;
-            FileTabNavigationUtil.navigateTo(target, target.getCurrentPath(),
-                linkName != null ? linkName.toString() : null, false);
+            target.navigateTo(target.getCurrentPath(), linkName != null ? linkName.toString() : null);
         });
     }
 
@@ -383,21 +431,22 @@ public final class FileTabOperationUtil {
 
     // --- Split and combine --------------------------------------------------------------------------------
 
-    public static void performSplitFile(FileTab tab) {
+    public static void performSplitFile(FileManagerTab tab) {
         if (tab.isInsideArchive()) {
             return;
         }
-        FileEntry entry = FileTabSelectionUtil.getSelectedEntry(tab);
+        FileEntry entry = tab.getSelectedEntry();
         if (entry == null || entry.directory() || entry.parentLink()) {
             return;
         }
 
         Path otherPath = tab.getOtherPanelPath();
-        SplitFileDialog dialog = new SplitFileDialog(tab.getProject(), entry.name(), entry.size(),
+        SplitFileDialogDescriptor dialog = new SplitFileDialogDescriptor(entry.name(), entry.size(),
             (otherPath != null ? otherPath : tab.getCurrentPath()).toString());
-        if (!dialog.showAndGet()) {
-            return;
-        }
+        showDialog(dialog, () -> split(tab, entry, dialog));
+    }
+
+    private static void split(FileManagerTab tab, FileEntry entry, SplitFileDialogDescriptor dialog) {
 
         Path targetDir = Path.of(dialog.getTargetDirectory());
         long chunkSize = dialog.isSplitBySize()
@@ -439,11 +488,11 @@ public final class FileTabOperationUtil {
             });
     }
 
-    public static void performCombineFiles(FileTab tab) {
+    public static void performCombineFiles(FileManagerTab tab) {
         if (tab.isInsideArchive()) {
             return;
         }
-        FileEntry entry = FileTabSelectionUtil.getSelectedEntry(tab);
+        FileEntry entry = tab.getSelectedEntry();
         if (entry == null || entry.directory() || entry.parentLink()) {
             return;
         }
@@ -460,7 +509,7 @@ public final class FileTabOperationUtil {
         UiTask.background(() -> combineFiles(tab, directory, baseFileName, defaultTarget));
     }
 
-    private static void combineFiles(FileTab tab, Path directory, String baseFileName, String defaultTarget) {
+    private static void combineFiles(FileManagerTab tab, Path directory, String baseFileName, String defaultTarget) {
         Path crcFile = directory.resolve(baseFileName + ".crc");
         boolean hasCrc = Files.exists(crcFile);
 
@@ -494,19 +543,18 @@ public final class FileTabOperationUtil {
 
         CombineFilesOperation.CrcInfo info = crcInfo;
         long sizeForDialog = totalSize;
-        UiTask.ui(() -> {
-            CombineFilesDialog dialog = new CombineFilesDialog(tab.getProject(), chunkFiles.size(),
+        tab.getUIAccess().give(() -> {
+            CombineFilesDialogDescriptor dialog = new CombineFilesDialogDescriptor(chunkFiles.size(),
                 sizeForDialog, hasCrc, defaultTarget, targetFileName);
-            if (!dialog.showAndGet()) {
-                return;
-            }
-            String targetDirectory = dialog.getTargetDirectory();
-            String targetFile = dialog.getTargetFile();
-            UiTask.background(() -> runCombine(tab, chunkFiles, info, hasCrc, targetDirectory, targetFile));
+            showDialog(dialog, () -> {
+                String targetDirectory = dialog.getTargetDirectory();
+                String targetFile = dialog.getTargetFile();
+                UiTask.background(() -> runCombine(tab, chunkFiles, info, hasCrc, targetDirectory, targetFile));
+            });
         });
     }
 
-    private static void runCombine(FileTab tab, List<Path> chunkFiles,
+    private static void runCombine(FileManagerTab tab, List<Path> chunkFiles,
                                    CombineFilesOperation.@Nullable CrcInfo crcInfo, boolean hasCrc,
                                    String targetDirectory, String targetFileName) {
         Path targetDir = Path.of(targetDirectory);
@@ -519,7 +567,7 @@ public final class FileTabOperationUtil {
         }
         Path targetFile = targetDir.resolve(targetFileName);
 
-        if (Files.exists(targetFile) && !confirmOverwrite(tab.getProject(), targetFileName)) {
+        if (Files.exists(targetFile) && !confirmOverwrite(tab, targetFileName)) {
             return;
         }
 
@@ -547,18 +595,31 @@ public final class FileTabOperationUtil {
             });
     }
 
-    private static boolean confirmOverwrite(Project project, String fileName) {
-        boolean[] overwrite = {false};
-        UiTask.uiAndWait(() -> overwrite[0] = Messages.showYesNoDialog(project,
-            "File \"" + fileName + "\" already exists. Overwrite?", "Combine Files",
-            Messages.getQuestionIcon()) == Messages.YES);
-        return overwrite[0];
+    /** Asks from the worker thread and waits; closing the prompt answers no. */
+    private static boolean confirmOverwrite(FileManagerTab tab, String fileName) {
+        return askAndWait(tab, Alert.<Boolean>create()
+            .asQuestion()
+            .title(LocalizeValue.localizeTODO("Combine Files"))
+            .text(LocalizeValue.of("File \"" + fileName + "\" already exists. Overwrite?"))
+            .button(LocalizeValue.localizeTODO("Overwrite"), () -> Boolean.TRUE).asDefaultButton()
+            .button(LocalizeValue.localizeTODO("Cancel"), () -> Boolean.FALSE).asExitButton(), Boolean.FALSE);
+    }
+
+    /**
+     * Shows {@code alert} on the tab's UI and blocks the calling worker thread for the answer - {@code closed} when the
+     * alert is dismissed without one. Never call on the UI thread.
+     */
+    private static <V> V askAndWait(FileManagerTab tab, Alert<V> alert, V closed) {
+        CompletableFuture<V> answer = new CompletableFuture<>();
+        tab.getUIAccess().give(() -> alert.showAsync()
+            .whenComplete((value, error) -> answer.complete(value != null ? value : closed)));
+        return answer.join();
     }
 
     // --- Pack and extract ----------------------------------------------------------------------------------
 
-    public static void performPack(FileTab tab) {
-        List<FileEntry> selected = FileTabSelectionUtil.getSelectedEntries(tab);
+    public static void performPack(FileManagerTab tab) {
+        List<FileEntry> selected = tab.getSelectedEntries();
         if (selected.isEmpty()) {
             return;
         }
@@ -566,11 +627,11 @@ public final class FileTabOperationUtil {
         Path destination = otherPath != null ? otherPath : tab.getCurrentPath();
         String archiveName = selected.size() == 1 ? selected.get(0).name() + ".zip" : "archive.zip";
 
-        PackDialog dialog = new PackDialog(tab.getProject(), selected,
-            destination.resolve(archiveName).toString());
-        if (!dialog.showAndGet()) {
-            return;
-        }
+        PackDialogDescriptor dialog = new PackDialogDescriptor(selected, destination.resolve(archiveName).toString());
+        showDialog(dialog, () -> pack(tab, selected, dialog));
+    }
+
+    private static void pack(FileManagerTab tab, List<FileEntry> selected, PackDialogDescriptor dialog) {
 
         Path archivePath = Path.of(dialog.getArchivePath());
         if (archivePath.getParent() == null) {
@@ -586,7 +647,7 @@ public final class FileTabOperationUtil {
         UiTask.background(() -> {
             boolean archiveExists = Files.exists(finalArchivePath);
             ArchiveExistsAction action = archiveExists
-                ? askArchiveExistsAction(tab.getProject(), finalArchivePath, format)
+                ? askArchiveExistsAction(tab, finalArchivePath, format)
                 : ArchiveExistsAction.OVERWRITE;
             if (action == ArchiveExistsAction.CANCEL) {
                 return;
@@ -596,7 +657,7 @@ public final class FileTabOperationUtil {
         });
     }
 
-    private static void runPack(FileTab tab, Path archivePath, List<Path> sourcePaths, ArchiveFormat format,
+    private static void runPack(FileManagerTab tab, Path archivePath, List<Path> sourcePaths, ArchiveFormat format,
                                 boolean archiveExists, boolean appendToExisting, boolean deleteAfterPacking) {
         ArchiveService archiveService = tab.getProject().getInstance(ArchiveService.class);
 
@@ -638,7 +699,7 @@ public final class FileTabOperationUtil {
     }
 
     /** The archive may have landed in either panel's directory, or in neither. */
-    private static void refreshAfterPack(FileTab tab, Path archivePath) {
+    private static void refreshAfterPack(FileManagerTab tab, Path archivePath) {
         Path archiveParent = archivePath.getParent();
         Path archiveFileName = archivePath.getFileName();
         String selectName = archiveFileName != null ? archiveFileName.toString() : null;
@@ -650,28 +711,27 @@ public final class FileTabOperationUtil {
         }
 
         if (archiveParent != null && archiveParent.equals(tab.getCurrentPath())) {
-            FileTabVfsUtil.refreshAfterVfsChange(tab, selectName);
-            UiTask.ui(tab::refreshOtherPanel);
+            refreshAfterVfsChange(tab, selectName);
+            tab.getUIAccess().give(tab::refreshOtherPanel);
             return;
         }
 
-        FileTabVfsUtil.refreshAfterVfsChange(tab);
+        refreshAfterVfsChange(tab);
         Path otherPath = tab.getOtherPanelPath();
         if (archiveParent != null && otherPath != null && archiveParent.equals(otherPath)) {
-            UiTask.ui(() -> {
-                FileTab otherTab = tab.getOtherPanelTab();
+            tab.getUIAccess().give(() -> {
+                FileManagerTab otherTab = tab.getOtherPanelTab();
                 if (otherTab != null) {
-                    UiTask.background(() -> FileTabNavigationUtil.navigateTo(otherTab,
-                        otherTab.getCurrentPath(), selectName, false));
+                    otherTab.navigateTo(otherTab.getCurrentPath(), selectName);
                 }
             });
         }
         else {
-            UiTask.ui(tab::refreshOtherPanel);
+            tab.getUIAccess().give(tab::refreshOtherPanel);
         }
     }
 
-    public static void performExtract(FileTab tab) {
+    public static void performExtract(FileManagerTab tab) {
         List<FileEntry> selected = selectedArchives(tab);
         if (selected.isEmpty()) {
             return;
@@ -681,14 +741,14 @@ public final class FileTabOperationUtil {
         extractWithDialog(tab, selected, destination);
     }
 
-    public static void performExtractHere(FileTab tab) {
+    public static void performExtractHere(FileManagerTab tab) {
         List<FileEntry> selected = selectedArchives(tab);
         if (!selected.isEmpty()) {
             extractArchives(tab, sourcePaths(selected), tab.getCurrentPath(), OverwritePolicy.ASK);
         }
     }
 
-    public static void performExtractToSubdir(FileTab tab) {
+    public static void performExtractToSubdir(FileManagerTab tab) {
         List<FileEntry> selected = selectedArchives(tab);
         if (selected.isEmpty()) {
             return;
@@ -697,21 +757,20 @@ public final class FileTabOperationUtil {
         extractWithDialog(tab, selected, destination);
     }
 
-    private static void extractWithDialog(FileTab tab, List<FileEntry> selected, Path destination) {
-        ExtractDialog dialog = new ExtractDialog(tab.getProject(), selected, destination.toString());
-        if (!dialog.showAndGet()) {
-            return;
-        }
-        Path destPath = Path.of(dialog.getDestinationPath());
-        if (!destPath.isAbsolute()) {
-            destPath = tab.getCurrentPath().resolve(destPath);
-        }
-        extractArchives(tab, sourcePaths(selected), destPath, dialog.getPolicy());
+    private static void extractWithDialog(FileManagerTab tab, List<FileEntry> selected, Path destination) {
+        ExtractDialogDescriptor dialog = new ExtractDialogDescriptor(selected, destination.toString());
+        showDialog(dialog, () -> {
+            Path destPath = Path.of(dialog.getDestinationPath());
+            if (!destPath.isAbsolute()) {
+                destPath = tab.getCurrentPath().resolve(destPath);
+            }
+            extractArchives(tab, sourcePaths(selected), destPath, dialog.getPolicy());
+        });
     }
 
-    private static List<FileEntry> selectedArchives(FileTab tab) {
+    private static List<FileEntry> selectedArchives(FileManagerTab tab) {
         List<FileEntry> archives = new ArrayList<>();
-        for (FileEntry entry : FileTabSelectionUtil.getSelectedEntries(tab)) {
+        for (FileEntry entry : tab.getSelectedEntries()) {
             if (!entry.directory() && VirtualFileSystemRegistry.supportsByExtension(entry.name())) {
                 archives.add(entry);
             }
@@ -734,7 +793,7 @@ public final class FileTabOperationUtil {
             : withoutLast;
     }
 
-    public static void extractArchives(FileTab tab, List<Path> archivePaths, Path destination,
+    public static void extractArchives(FileManagerTab tab, List<Path> archivePaths, Path destination,
                                        OverwritePolicy initialPolicy) {
         ArchiveService archiveService = tab.getProject().getInstance(ArchiveService.class);
 
@@ -756,7 +815,7 @@ public final class FileTabOperationUtil {
 
                 archiveService.extractArchiveWithProgress(archivePath, destination, initialPolicy,
                     countingProgress(indicator, "Extracting", totalEntries),
-                    FileTabOperationUtil::askOverwriteConfirm,
+                    path -> askOverwriteConfirm(tab, path),
                     errorNotifier(tab, "Failed to extract"),
                     indicator::isCanceled,
                     openProgress);
@@ -769,7 +828,7 @@ public final class FileTabOperationUtil {
 
     // --- Opening -----------------------------------------------------------------------------------------
 
-    public static void openFile(FileTab tab, FileEntry entry) {
+    public static void openFile(FileManagerTab tab, FileEntry entry) {
         if (entry.namedPipe()) {
             // Opening a FIFO blocks until a writer connects, which would hang the editor.
             TurtleCommanderNotifications.warn(tab.getProject(),
@@ -790,16 +849,16 @@ public final class FileTabOperationUtil {
     }
 
     /** Resolves and pre-caches the file type off the UI thread, then opens the editor on it. */
-    private static void openInEditor(FileTab tab, Path path) {
+    private static void openInEditor(FileManagerTab tab, Path path) {
         VirtualFile virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path);
         if (virtualFile == null) {
             return;
         }
         virtualFile.getFileType();
-        UiTask.ui(() -> FileEditorManager.getInstance(tab.getProject()).openFile(virtualFile, true));
+        tab.getUIAccess().give(() -> FileEditorManager.getInstance(tab.getProject()).openFile(virtualFile, true));
     }
 
-    private static void openVfsFileReadOnly(FileTab tab, FileEntry entry, VirtualFileSystem vfs) {
+    private static void openVfsFileReadOnly(FileManagerTab tab, FileEntry entry, VirtualFileSystem vfs) {
         boolean isTempDirVfs = !(vfs instanceof ZipVirtualFileSystem);
         UiTask.background(() -> {
             try {
@@ -821,7 +880,7 @@ public final class FileTabOperationUtil {
         });
     }
 
-    private static void openVfsFileEditable(FileTab tab, FileEntry entry) {
+    private static void openVfsFileEditable(FileManagerTab tab, FileEntry entry) {
         Path vfsFilePath = entry.path();
         List<VfsStackEntry> stackRef = new ArrayList<>(tab.getVfsStack());
 
@@ -861,10 +920,10 @@ public final class FileTabOperationUtil {
                         Path newPath = relPath.isEmpty()
                             ? current.getRoot()
                             : current.getRoot().resolve(relPath);
-                        UiTask.background(() -> FileTabNavigationUtil.navigateTo(tab, newPath));
+                        UiTask.background(() -> tab.navigateTo(newPath));
                     }));
 
-                UiTask.ui(() -> FileEditorManager.getInstance(tab.getProject()).openFile(virtualFile, true));
+                tab.getUIAccess().give(() -> FileEditorManager.getInstance(tab.getProject()).openFile(virtualFile, true));
             }
             catch (Exception e) {
                 notifyError(tab, "Failed to open file: " + FileUtils.fileErrorMessage(e));
@@ -893,8 +952,8 @@ public final class FileTabOperationUtil {
         return tempPath;
     }
 
-    public static void openSelectedInAssociatedApp(FileTab tab) {
-        FileEntry entry = FileTabSelectionUtil.getSelectedEntry(tab);
+    public static void openSelectedInAssociatedApp(FileManagerTab tab) {
+        FileEntry entry = tab.getSelectedEntry();
         if (entry == null || entry.parentLink() || entry.directory()) {
             return;
         }
@@ -916,8 +975,8 @@ public final class FileTabOperationUtil {
         });
     }
 
-    public static void viewSelectedFile(FileTab tab) {
-        FileEntry entry = FileTabSelectionUtil.getSelectedEntry(tab);
+    public static void viewSelectedFile(FileManagerTab tab) {
+        FileEntry entry = tab.getSelectedEntry();
         if (entry != null && !entry.parentLink() && !entry.directory()) {
             openFile(tab, entry);
         }
@@ -925,27 +984,29 @@ public final class FileTabOperationUtil {
 
     // --- Rename -------------------------------------------------------------------------------------------
 
-    public static void startRename(FileTab tab) {
-        FileEntry entry = FileTabSelectionUtil.getSelectedEntry(tab);
+    public static void startRename(FileManagerTab tab) {
+        FileEntry entry = tab.getSelectedEntry();
         if (entry == null || entry.parentLink()) {
             return;
         }
-        // Only the table has an inline editor; the other views fall back to a dialog.
-        if (tab.getViewMode() == ViewMode.TABLE) {
-            int row = tab.getTable().getSelectedRow();
+        // Only the Swing table has an inline editor; everything else asks in a prompt.
+        if (tab instanceof FileTab swingTab && swingTab.getViewMode() == ViewMode.TABLE) {
+            int row = swingTab.getTable().getSelectedRow();
             if (row >= 0) {
-                tab.getTable().editCellAt(row, nameViewColumn(tab));
+                swingTab.getTable().editCellAt(row, nameViewColumn(swingTab));
             }
             return;
         }
-        InputDialog dialog = new InputDialog(tab.getProject(), "Rename", "Enter new name:", entry.name());
-        if (!dialog.showAndGet()) {
-            return;
-        }
-        String newName = dialog.getInputValue();
-        if (!newName.isBlank() && !newName.equals(entry.name())) {
-            performRename(tab, entry, newName);
-        }
+        InputBoxBuilder.text()
+            .title(LocalizeValue.localizeTODO("Rename"))
+            .text(LocalizeValue.localizeTODO("Enter new name:"))
+            .value(entry.name())
+            .showAsync()
+            .whenComplete((newName, error) -> {
+                if (error == null && newName != null && !newName.isBlank() && !newName.equals(entry.name())) {
+                    performRename(tab, entry, newName);
+                }
+            });
     }
 
     private static int nameViewColumn(FileTab tab) {
@@ -957,7 +1018,7 @@ public final class FileTabOperationUtil {
         return 0;
     }
 
-    public static void performRename(FileTab tab, FileEntry entry, String newName) {
+    public static void performRename(FileManagerTab tab, FileEntry entry, String newName) {
         UiTask.background(() -> {
             try {
                 VirtualFileSystem vfs = tab.getCurrentVfs();
@@ -974,7 +1035,7 @@ public final class FileTabOperationUtil {
         });
     }
 
-    private static void renameInArchive(FileTab tab, VirtualFileSystem vfs, FileEntry entry, String newName)
+    private static void renameInArchive(FileManagerTab tab, VirtualFileSystem vfs, FileEntry entry, String newName)
         throws Exception {
         if (vfs.isReadOnly()) {
             notifyError(tab, "Cannot rename in a read-only archive");
@@ -983,10 +1044,10 @@ public final class FileTabOperationUtil {
         vfs.renameFile(entry.path(), newName);
         String relative = VfsPaths.vfsRelativePath(vfs.getRoot(), tab.getCurrentPath());
         Path newPath = relative.isEmpty() ? vfs.getRoot() : vfs.getRoot().resolve(relative);
-        FileTabNavigationUtil.navigateTo(tab, newPath, newName, true);
+        tab.navigateTo(newPath, newName);
     }
 
-    private static void renameOnDisk(FileTab tab, FileEntry entry, String newName) throws Exception {
+    private static void renameOnDisk(FileManagerTab tab, FileEntry entry, String newName) throws Exception {
         // Prefer the platform's own virtual file system so open editors follow the rename.
         VirtualFile virtualFile = LocalFileSystem.getInstance().findFileByNioFile(entry.path());
         if (virtualFile != null) {
@@ -1007,7 +1068,7 @@ public final class FileTabOperationUtil {
         else {
             tab.getFileOps().renameFile(entry.path(), newName);
         }
-        FileTabNavigationUtil.navigateTo(tab, tab.getCurrentPath(), newName, true);
+        tab.navigateTo(tab.getCurrentPath(), newName);
     }
 
     // --- Multi-rename ---------------------------------------------------------------------------------------
@@ -1019,31 +1080,30 @@ public final class FileTabOperationUtil {
      */
     private static volatile @Nullable List<Path[]> ourLastMultiRenameBatch;
 
-    public static void performMultiRename(FileTab tab) {
+    public static void performMultiRename(FileManagerTab tab) {
         VirtualFileSystem vfs = tab.getCurrentVfs();
         if (vfs != null && vfs.isReadOnly()) {
             tab.fileErrorNotification("Cannot rename inside a read-only archive");
             return;
         }
 
-        List<FileEntry> targets = withoutParentLink(FileTabSelectionUtil.getSelectedEntries(tab));
+        List<FileEntry> targets = withoutParentLink(tab.getSelectedEntries());
         if (targets.isEmpty()) {
             // Nothing selected means "every entry in the current view".
-            targets = withoutParentLink(FileTabSelectionUtil.getDisplayedEntries(tab));
+            targets = withoutParentLink(tab.getDisplayedEntries());
         }
         if (targets.isEmpty()) {
             tab.fileErrorNotification("Nothing to rename");
             return;
         }
 
-        MultiRenameDialog dialog = new MultiRenameDialog(tab.getProject(), targets);
-        if (!dialog.showAndGet()) {
-            return;
-        }
-        List<MultiRenameDialog.Rename> renames = dialog.getResult();
-        if (!renames.isEmpty()) {
-            UiTask.background(() -> runMultiRename(tab, renames));
-        }
+        MultiRenameDialogDescriptor dialog = new MultiRenameDialogDescriptor(targets);
+        showDialog(dialog, () -> {
+            List<MultiRenameDialogDescriptor.Rename> renames = dialog.getResult();
+            if (!renames.isEmpty()) {
+                UiTask.background(() -> runMultiRename(tab, renames));
+            }
+        });
     }
 
     /**
@@ -1051,12 +1111,12 @@ public final class FileTabOperationUtil {
      * named temp file, then each temp to its final name. A direct a→b would collide when b is
      * itself waiting to be renamed.
      */
-    private static void runMultiRename(FileTab tab, List<MultiRenameDialog.Rename> renames) {
+    private static void runMultiRename(FileManagerTab tab, List<MultiRenameDialogDescriptor.Rename> renames) {
         List<Path[]> completed = new ArrayList<>();
         List<Object[]> temps = new ArrayList<>();
 
         try {
-            for (MultiRenameDialog.Rename rename : renames) {
+            for (MultiRenameDialogDescriptor.Rename rename : renames) {
                 Path parent = rename.entry().path().getParent();
                 if (parent == null) {
                     continue;
@@ -1082,7 +1142,7 @@ public final class FileTabOperationUtil {
         invalidateParents(tab, completed, 0);
         ourLastMultiRenameBatch = completed;
         notifyInfo(tab, "Renamed " + completed.size() + " file(s).");
-        FileTabNavigationUtil.navigateTo(tab, tab.getCurrentPath());
+        tab.navigateTo(tab.getCurrentPath());
     }
 
     /** Best-effort restore of the sources that were moved to temps but never got their final name. */
@@ -1112,7 +1172,7 @@ public final class FileTabOperationUtil {
         return batch != null && !batch.isEmpty();
     }
 
-    public static void performMultiRenameUndo(FileTab tab) {
+    public static void performMultiRenameUndo(FileManagerTab tab) {
         List<Path[]> batch = ourLastMultiRenameBatch;
         if (batch == null || batch.isEmpty()) {
             tab.fileErrorNotification("Nothing to undo");
@@ -1139,7 +1199,7 @@ public final class FileTabOperationUtil {
                 invalidateParents(tab, batch, 0);
                 invalidateParents(tab, batch, 1);
                 ourLastMultiRenameBatch = null;
-                FileTabNavigationUtil.navigateTo(tab, tab.getCurrentPath());
+                tab.navigateTo(tab.getCurrentPath());
             }
             catch (Exception e) {
                 notifyError(tab, "Undo failed: " + FileUtils.fileErrorMessage(e));
@@ -1147,7 +1207,7 @@ public final class FileTabOperationUtil {
         });
     }
 
-    private static void invalidateParents(FileTab tab, List<Path[]> pairs, int index) {
+    private static void invalidateParents(FileManagerTab tab, List<Path[]> pairs, int index) {
         Set<Path> parents = new LinkedHashSet<>();
         for (Path[] pair : pairs) {
             Path parent = pair[index].getParent();
@@ -1176,50 +1236,41 @@ public final class FileTabOperationUtil {
         OVERWRITE, APPEND, CANCEL
     }
 
-    /**
-     * Appending is only offered for formats that support it (currently ZIP); for the rest the
-     * dialog is reduced to Overwrite / Cancel, so index 1 means Cancel rather than Append.
-     */
-    private static ArchiveExistsAction askArchiveExistsAction(Project project, Path archivePath,
+    /** Appending is only offered for formats that support it - currently ZIP. Closing the prompt cancels. */
+    private static ArchiveExistsAction askArchiveExistsAction(FileManagerTab tab, Path archivePath,
                                                               ArchiveFormat format) {
-        boolean supportsAppend = format == ArchiveFormat.ZIP;
-        String[] options = supportsAppend
-            ? new String[]{"Overwrite", "Add to Existing", "Cancel"}
-            : new String[]{"Overwrite", "Cancel"};
-
-        int[] result = {-1};
-        UiTask.uiAndWait(() -> result[0] = Messages.showDialog(project,
-            "Archive already exists:\n" + archivePath.getFileName() + "\n\nWhat would you like to do?",
-            "Archive Exists", options, 0, Messages.getQuestionIcon()));
-
-        if (result[0] == 0) {
-            return ArchiveExistsAction.OVERWRITE;
+        Alert<ArchiveExistsAction> alert = Alert.<ArchiveExistsAction>create()
+            .asQuestion()
+            .title(LocalizeValue.localizeTODO("Archive Exists"))
+            .text(LocalizeValue.of("Archive already exists:\n" + archivePath.getFileName() + "\n\nWhat would you like to do?"))
+            .button(LocalizeValue.localizeTODO("Overwrite"), () -> ArchiveExistsAction.OVERWRITE).asDefaultButton();
+        if (format == ArchiveFormat.ZIP) {
+            alert.button(LocalizeValue.localizeTODO("Add to Existing"), () -> ArchiveExistsAction.APPEND);
         }
-        return result[0] == 1 && supportsAppend ? ArchiveExistsAction.APPEND : ArchiveExistsAction.CANCEL;
+        alert.button(LocalizeValue.localizeTODO("Cancel"), () -> ArchiveExistsAction.CANCEL).asExitButton();
+        return askAndWait(tab, alert, ArchiveExistsAction.CANCEL);
     }
 
-    /** Blocks the calling worker thread while the modal prompt is up. Never call on the UI thread. */
-    private static OverwriteResponse askOverwriteConfirm(Path path) {
-        // Order matches the index Messages.showDialog returns. Dismissing the dialog (Esc, close)
-        // also lands on CANCEL, so the user can't fall into a stale default by accident.
-        String[] labels = {
-            "Overwrite", "Skip", "Overwrite All", "Skip All",
-            "Overwrite if Older", "Overwrite All Older", "Cancel",
-        };
-        int[] result = {-1};
-        UiTask.uiAndWait(() -> result[0] = Messages.showDialog((Project) null,
-            "File already exists:\n" + path.getFileName() + "\n\nWhat would you like to do?",
-            "File Exists", labels, 0, Messages.getQuestionIcon()));
-
-        return switch (result[0]) {
-            case 0 -> OverwriteResponse.OVERWRITE;
-            case 1 -> OverwriteResponse.SKIP;
-            case 2 -> OverwriteResponse.OVERWRITE_ALL;
-            case 3 -> OverwriteResponse.SKIP_ALL;
-            case 4 -> OverwriteResponse.OVERWRITE_IF_OLDER;
-            case 5 -> OverwriteResponse.OVERWRITE_ALL_IF_OLDER;
-            default -> OverwriteResponse.CANCEL;
-        };
+    /**
+     * Asks, from the transfer's worker thread, what to do with a file that is already there, and waits for the answer.
+     * Closing the prompt answers cancel, so the user can't fall into a stale default by accident.
+     */
+    private static OverwriteResponse askOverwriteConfirm(FileManagerTab tab, Path path) {
+        CompletableFuture<OverwriteResponse> answer = new CompletableFuture<>();
+        tab.getUIAccess().give(() -> Alert.<OverwriteResponse>create()
+            .asQuestion()
+            .title(LocalizeValue.localizeTODO("File Exists"))
+            .text(LocalizeValue.of("File already exists:\n" + path.getFileName() + "\n\nWhat would you like to do?"))
+            .button(LocalizeValue.localizeTODO("Overwrite"), () -> OverwriteResponse.OVERWRITE).asDefaultButton()
+            .button(LocalizeValue.localizeTODO("Skip"), () -> OverwriteResponse.SKIP)
+            .button(LocalizeValue.localizeTODO("Overwrite All"), () -> OverwriteResponse.OVERWRITE_ALL)
+            .button(LocalizeValue.localizeTODO("Skip All"), () -> OverwriteResponse.SKIP_ALL)
+            .button(LocalizeValue.localizeTODO("Overwrite if Older"), () -> OverwriteResponse.OVERWRITE_IF_OLDER)
+            .button(LocalizeValue.localizeTODO("Overwrite All Older"), () -> OverwriteResponse.OVERWRITE_ALL_IF_OLDER)
+            .button(LocalizeValue.localizeTODO("Cancel"), () -> OverwriteResponse.CANCEL).asExitButton()
+            .showAsync()
+            .whenComplete((response, error) -> answer.complete(response != null ? response : OverwriteResponse.CANCEL)));
+        return answer.join();
     }
 
     // --- Shared plumbing ---------------------------------------------------------------------------------------
@@ -1242,22 +1293,22 @@ public final class FileTabOperationUtil {
         };
     }
 
-    private static ErrorListener errorNotifier(FileTab tab, String prefix) {
+    private static ErrorListener errorNotifier(FileManagerTab tab, String prefix) {
         return (path, error) -> notifyError(tab,
             prefix + " " + path.getFileName() + ": " + FileUtils.fileErrorMessage(error));
     }
 
-    private static void notifyError(FileTab tab, String message) {
-        UiTask.ui(() -> tab.fileErrorNotification(message));
+    private static void notifyError(FileManagerTab tab, String message) {
+        tab.getUIAccess().give(() -> tab.fileErrorNotification(message));
     }
 
-    private static void notifyInfo(FileTab tab, String message) {
-        UiTask.ui(() -> TurtleCommanderNotifications.info(tab.getProject(), message));
+    private static void notifyInfo(FileManagerTab tab, String message) {
+        tab.getUIAccess().give(() -> TurtleCommanderNotifications.info(tab.getProject(), message));
     }
 
-    private static void finishAndRefresh(FileTab tab) {
-        FileTabVfsUtil.refreshAfterVfsChange(tab);
-        UiTask.ui(tab::refreshOtherPanel);
+    private static void finishAndRefresh(FileManagerTab tab) {
+        refreshAfterVfsChange(tab);
+        tab.getUIAccess().give(tab::refreshOtherPanel);
     }
 
     private static List<Path> sourcePaths(List<FileEntry> entries) {
@@ -1276,5 +1327,25 @@ public final class FileTabOperationUtil {
             }
         }
         return result;
+    }
+
+    /** An archive is only ever open in the Swing tab; the unified one lists the plain file system again. */
+    private static void refreshAfterVfsChange(FileManagerTab tab) {
+        if (tab instanceof FileTab swingTab) {
+            FileTabVfsUtil.refreshAfterVfsChange(swingTab);
+        }
+        else {
+            tab.refresh();
+        }
+    }
+
+    private static void refreshAfterVfsChange(FileManagerTab tab, @Nullable String selectName) {
+        if (tab instanceof FileTab swingTab) {
+            FileTabVfsUtil.refreshAfterVfsChange(swingTab, selectName);
+        }
+        else {
+            tab.getFileOps().invalidateListingCache(tab.getCurrentPath());
+            tab.navigateTo(tab.getCurrentPath(), selectName);
+        }
     }
 }

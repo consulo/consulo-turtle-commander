@@ -9,10 +9,10 @@ import consulo.turtlecommander.util.FileUtils;
 import consulo.turtlecommander.util.UiTask;
 import consulo.ui.ex.CopyPasteManager;
 import consulo.ui.ex.action.AnActionEvent;
-import consulo.ui.ex.awt.Messages;
 import org.jspecify.annotations.Nullable;
 
 import java.nio.file.Path;
+import consulo.ui.Alerts;
 
 /**
  * Copies a checksum of the right-clicked file. Hashing streams the whole file, so it runs under a
@@ -55,9 +55,8 @@ public abstract class CopyHashAction extends EdtAction {
                 }
                 catch (Exception ex) {
                     if (!indicator.isCanceled()) {
-                        UiTask.ui(() -> Messages.showErrorDialog(project,
-                            "Failed to compute " + myLabel + ": " + FileUtils.fileErrorMessage(ex),
-                            "Copy " + myLabel));
+                        UiTask.ui(() -> Alerts.okError(LocalizeValue.of(
+                            "Failed to compute " + myLabel + ": " + FileUtils.fileErrorMessage(ex))).showAsync());
                     }
                     return;
                 }

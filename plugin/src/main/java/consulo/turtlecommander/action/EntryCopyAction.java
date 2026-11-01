@@ -2,8 +2,7 @@ package consulo.turtlecommander.action;
 
 import consulo.localize.LocalizeValue;
 import consulo.turtlecommander.model.FileEntry;
-import consulo.turtlecommander.ui.FileTab;
-import consulo.turtlecommander.ui.FileTabVfsUtil;
+import consulo.turtlecommander.ui.FileManagerTab;
 import consulo.ui.ex.CopyPasteManager;
 import consulo.ui.ex.action.AnActionEvent;
 import org.jspecify.annotations.Nullable;
@@ -26,7 +25,7 @@ public abstract class EntryCopyAction extends EdtAction {
     protected abstract @Nullable FileEntry entry(AnActionEvent e);
 
     /** The owning tab, when archive-aware path resolution is possible; null for search results. */
-    protected @Nullable FileTab tab(AnActionEvent e) {
+    protected @Nullable FileManagerTab tab(AnActionEvent e) {
         return null;
     }
 
@@ -40,18 +39,18 @@ public abstract class EntryCopyAction extends EdtAction {
      * The user-facing full path. Inside an archive {@code entry.path()} points at a temp-extracted
      * file, so the tab's display path joined with the entry name is what the user actually means.
      */
-    protected static String fullPathOf(FileEntry entry, @Nullable FileTab tab) {
+    protected static String fullPathOf(FileEntry entry, @Nullable FileManagerTab tab) {
         if (tab == null || !tab.isInsideArchive()) {
             return entry.path().toString();
         }
-        String displayPath = FileTabVfsUtil.getDisplayPath(tab);
+        String displayPath = tab.getDisplayPath();
         String separator = displayPath.contains("\\") ? "\\" : "/";
         return displayPath + separator + entry.name();
     }
 
-    protected static String parentPathOf(FileEntry entry, @Nullable FileTab tab) {
+    protected static String parentPathOf(FileEntry entry, @Nullable FileManagerTab tab) {
         if (tab != null && tab.isInsideArchive()) {
-            return FileTabVfsUtil.getDisplayPath(tab);
+            return tab.getDisplayPath();
         }
         Path parent = entry.path().getParent();
         return parent != null ? parent.toString() : "";

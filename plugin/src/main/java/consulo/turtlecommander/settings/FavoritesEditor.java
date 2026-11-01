@@ -3,29 +3,30 @@ package consulo.turtlecommander.settings;
 import consulo.fileChooser.FileChooserDescriptor;
 import consulo.fileChooser.FileChooserDescriptorFactory;
 import consulo.fileChooser.FileChooserFactory;
+import consulo.localize.LocalizeValue;
+import consulo.platform.base.icon.PlatformIconGroup;
 import consulo.project.Project;
 import consulo.project.ProjectManager;
 import consulo.turtlecommander.service.FavoriteEntry;
 import consulo.turtlecommander.service.FileManagerStateService;
 import consulo.turtlecommander.ui.FavoriteIcons;
-import consulo.ui.ex.awt.JBList;
-import consulo.ui.ex.awt.SimpleColoredComponent;
+import consulo.ui.Button;
+import consulo.ui.ButtonStyle;
+import consulo.ui.Component;
+import consulo.ui.Space;
+import consulo.ui.Table;
+import consulo.ui.UIAccess;
+import consulo.ui.annotation.RequiredUIAccess;
+import consulo.ui.image.Image;
+import consulo.ui.layout.DockLayout;
+import consulo.ui.layout.HorizontalLayout;
+import consulo.ui.layout.LabeledLayout;
+import consulo.ui.layout.ScrollableLayout;
+import consulo.ui.model.FlatDataModel;
+import consulo.ui.model.MutableFlatDataModel;
 import consulo.util.io.FileUtil;
 import org.jspecify.annotations.Nullable;
 
-import javax.swing.BorderFactory;
-import javax.swing.Box;
-import javax.swing.BoxLayout;
-import javax.swing.DefaultListModel;
-import javax.swing.JButton;
-import javax.swing.JComponent;
-import javax.swing.JList;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.ListCellRenderer;
-import java.awt.BorderLayout;
-import java.awt.Component;
-import java.awt.Dimension;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -37,72 +38,71 @@ import java.util.List;
  */
 public class FavoritesEditor {
     private static final int PANEL_HEIGHT = 260;
-    private static final int VISIBLE_ROWS = 6;
+    private static final int PATH_COLUMN_WIDTH = 500;
 
-    private final DefaultListModel<FavoriteEntry> myListModel = new DefaultListModel<>();
-    private final JBList<FavoriteEntry> myList = new JBList<>(myListModel);
-    private final JPanel myPanel;
+    private final MutableFlatDataModel<FavoriteEntry> myModel = FlatDataModel.of(List.of());
+    private final Table<FavoriteEntry> myTable = Table.create(myModel);
+    /** The chooser may answer off the UI thread; the model is only touched through here. */
+    private final UIAccess myUIAccess;
+    private final Component myRoot;
 
+    @RequiredUIAccess
     public FavoritesEditor() {
+        myUIAccess = UIAccess.current();
+
+        myTable.setAllowMultipleSelect(false);
+        myTable.setShowHeader(false);
+        // the favourite's icon - colour tint or chosen glyph - beside its path; the frontends do not stretch a column
+        // to the free width, so the path starts out wide
+        myTable.addColumn(LocalizeValue.localizeTODO("Path"), entry -> entry)
+            .setWidth(PATH_COLUMN_WIDTH)
+            .setRenderer((presentation, item) -> {
+                FavoriteEntry entry = item.getValue();
+                if (entry != null) {
+                    presentation.withIcon(FavoriteIcons.favoriteIcon(entry.color, entry.icon));
+                    presentation.append(entry.path);
+                }
+            });
+
         loadFavorites();
-        myList.setVisibleRowCount(VISIBLE_ROWS);
-        myList.setCellRenderer(new FavoriteListCellRenderer());
-        myPanel = buildPanel();
+        myRoot = buildPanel();
     }
 
-    public JPanel getPanel() {
-        return myPanel;
+    public Component getComponent() {
+        return myRoot;
     }
 
-    private JPanel buildPanel() {
-        JButton addButton = new JButton("Add");
-        addButton.addActionListener(e -> addFavorite());
+    @RequiredUIAccess
+    private Component buildPanel() {
+        HorizontalLayout toolbar = HorizontalLayout.create(Space.X_SMALL);
+        toolbar.add(toolbarButton(PlatformIconGroup.generalAdd(), "Add", this::addFavorite));
+        toolbar.add(toolbarButton(PlatformIconGroup.generalRemove(), "Remove", this::removeSelected));
+        toolbar.add(toolbarButton(PlatformIconGroup.actionsMoveup(), "Move Up", () -> move(-1)));
+        toolbar.add(toolbarButton(PlatformIconGroup.actionsMovedown(), "Move Down", () -> move(1)));
 
-        JButton removeButton = new JButton("Remove");
-        removeButton.addActionListener(e -> {
-            int index = myList.getSelectedIndex();
-            if (index >= 0) {
-                myListModel.remove(index);
-            }
-        });
+        Button colorButton = Button.create(LocalizeValue.localizeTODO("Color..."));
+        colorButton.addClickListener(event -> chooseColor(colorButton));
+        toolbar.add(colorButton);
+        Button iconButton = Button.create(LocalizeValue.localizeTODO("Icon..."));
+        iconButton.addClickListener(event -> chooseIcon(iconButton));
+        toolbar.add(iconButton);
 
-        JButton moveUpButton = new JButton("Up");
-        moveUpButton.addActionListener(e -> move(-1));
-        JButton moveDownButton = new JButton("Down");
-        moveDownButton.addActionListener(e -> move(1));
-
-        JButton colorButton = new JButton("Color...");
-        colorButton.addActionListener(e -> chooseColor(colorButton));
-        JButton iconButton = new JButton("Icon...");
-        iconButton.addActionListener(e -> chooseIcon(iconButton));
-
-        List<JButton> buttons =
-            List.of(addButton, removeButton, moveUpButton, moveDownButton, colorButton, iconButton);
-        for (JButton button : buttons) {
-            button.setMaximumSize(new Dimension(Integer.MAX_VALUE, button.getPreferredSize().height));
-        }
-
-        JPanel buttonPanel = new JPanel();
-        buttonPanel.setLayout(new BoxLayout(buttonPanel, BoxLayout.Y_AXIS));
-        buttonPanel.add(addButton);
-        buttonPanel.add(removeButton);
-        buttonPanel.add(Box.createVerticalStrut(8));
-        buttonPanel.add(moveUpButton);
-        buttonPanel.add(moveDownButton);
-        buttonPanel.add(Box.createVerticalStrut(8));
-        buttonPanel.add(colorButton);
-        buttonPanel.add(iconButton);
-
-        JPanel panel = new JPanel(new BorderLayout(8, 0));
-        panel.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-        panel.setBorder(BorderFactory.createTitledBorder("Favorites"));
-        panel.add(new JScrollPane(myList), BorderLayout.CENTER);
-        panel.add(buttonPanel, BorderLayout.EAST);
-        panel.setPreferredSize(new Dimension(Integer.MAX_VALUE, PANEL_HEIGHT));
-        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, PANEL_HEIGHT));
-        return panel;
+        DockLayout panel = DockLayout.create(Space.X_SMALL).top(toolbar).center(ScrollableLayout.create(myTable));
+        panel.setHeight(PANEL_HEIGHT);
+        return LabeledLayout.create(LocalizeValue.localizeTODO("Favorites"), panel);
     }
 
+    @RequiredUIAccess
+    private static Button toolbarButton(Image icon, String tooltip, Runnable action) {
+        Button button = Button.create(LocalizeValue.empty());
+        button.setIcon(icon);
+        button.addStyle(ButtonStyle.BORDERLESS);
+        button.setToolTipText(LocalizeValue.localizeTODO(tooltip));
+        button.addClickListener(event -> action.run());
+        return button;
+    }
+
+    @RequiredUIAccess
     private void addFavorite() {
         FileChooserDescriptor descriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor();
         descriptor.setTitle("Add Favorite");
@@ -110,44 +110,58 @@ public class FavoritesEditor {
 
         FileChooserFactory.getInstance().newBuilder(descriptor).project(currentProject()).showSingle().whenComplete((chosen, error) -> {
             if (chosen != null) {
-                myListModel.addElement(new FavoriteEntry(FileUtil.toSystemIndependentName(chosen.toString()), "", ""));
+                FavoriteEntry entry = new FavoriteEntry(FileUtil.toSystemIndependentName(chosen.toString()), "", "");
+                myUIAccess.giveIfNeed(() -> {
+                    myModel.add(entry);
+                    myTable.select(entry);
+                });
             }
         });
     }
 
+    @RequiredUIAccess
+    private void removeSelected() {
+        FavoriteEntry selected = myTable.getSelectedItem();
+        if (selected != null) {
+            myModel.remove(selected);
+        }
+    }
+
+    @RequiredUIAccess
     private void move(int offset) {
-        int index = myList.getSelectedIndex();
+        FavoriteEntry selected = myTable.getSelectedItem();
+        int index = selected == null ? -1 : myModel.indexOf(selected);
         int target = index + offset;
-        if (index < 0 || target < 0 || target >= myListModel.size()) {
+        if (index < 0 || target < 0 || target >= myModel.getSize()) {
             return;
         }
-        myListModel.add(target, myListModel.remove(index));
-        myList.setSelectedIndex(target);
+        myModel.remove(selected);
+        myModel.add(selected, target);
+        myTable.select(selected);
     }
 
-    private void chooseColor(JComponent anchor) {
-        int index = myList.getSelectedIndex();
-        if (index < 0) {
+    @RequiredUIAccess
+    private void chooseColor(Component anchor) {
+        FavoriteEntry entry = myTable.getSelectedItem();
+        if (entry == null) {
             return;
         }
-        FavoriteEntry entry = myListModel.getElementAt(index);
-        ColorPickerButton.showColorPopup(anchor, "Choose Favorite Color",
-            PresetColors.decode(entry.color), picked -> {
-                myListModel.set(index,
-                    new FavoriteEntry(entry.path, PresetColors.toHex(picked), entry.icon));
-                myList.repaint();
-            });
+        UnifiedColorPicker.showColorPopup(anchor, "Choose Favorite Color", PresetColors.decode(entry.color), picked -> {
+            // the entries are this editor's own copies, so they can change in place
+            entry.color = PresetColors.toHex(picked);
+            myModel.update(entry);
+        });
     }
 
-    private void chooseIcon(JComponent anchor) {
-        int index = myList.getSelectedIndex();
-        if (index < 0) {
+    @RequiredUIAccess
+    private void chooseIcon(Component anchor) {
+        FavoriteEntry entry = myTable.getSelectedItem();
+        if (entry == null) {
             return;
         }
-        FavoriteEntry entry = myListModel.getElementAt(index);
-        IconPickerButton.showIconChooserPopup(anchor, key -> {
-            myListModel.set(index, new FavoriteEntry(entry.path, entry.color, key));
-            myList.repaint();
+        UnifiedIconPicker.showIconChooserPopup(anchor, key -> {
+            entry.icon = key;
+            myModel.update(entry);
         });
     }
 
@@ -157,11 +171,11 @@ public class FavoritesEditor {
             return false;
         }
         List<FavoriteEntry> saved = stateService.getFavoriteEntries();
-        if (myListModel.size() != saved.size()) {
+        if (myModel.getSize() != saved.size()) {
             return true;
         }
-        for (int i = 0; i < myListModel.size(); i++) {
-            FavoriteEntry current = myListModel.getElementAt(i);
+        for (int i = 0; i < myModel.getSize(); i++) {
+            FavoriteEntry current = myModel.get(i);
             FavoriteEntry savedEntry = saved.get(i);
             if (!current.path.equals(savedEntry.path)
                 || !current.color.equals(savedEntry.color)
@@ -177,27 +191,30 @@ public class FavoritesEditor {
         if (stateService == null) {
             return;
         }
-        List<FavoriteEntry> entries = new ArrayList<>(myListModel.size());
-        for (int i = 0; i < myListModel.size(); i++) {
-            entries.add(myListModel.getElementAt(i));
+        // copies again, so later edits here do not reach the stored list before the next apply
+        List<FavoriteEntry> entries = new ArrayList<>(myModel.getSize());
+        for (FavoriteEntry entry : myModel) {
+            entries.add(new FavoriteEntry(entry.path, entry.color, entry.icon));
         }
         stateService.setFavoriteEntries(entries);
     }
 
+    @RequiredUIAccess
     public void reset() {
-        myListModel.clear();
         loadFavorites();
     }
 
+    @RequiredUIAccess
     private void loadFavorites() {
         FileManagerStateService stateService = stateService();
-        if (stateService == null) {
-            return;
+        List<FavoriteEntry> entries = new ArrayList<>();
+        if (stateService != null) {
+            // Copied rather than shared, so cancelling the dialog leaves the stored list untouched.
+            for (FavoriteEntry entry : stateService.getFavoriteEntries()) {
+                entries.add(new FavoriteEntry(entry.path, entry.color, entry.icon));
+            }
         }
-        // Copied rather than shared, so cancelling the dialog leaves the stored list untouched.
-        for (FavoriteEntry entry : stateService.getFavoriteEntries()) {
-            myListModel.addElement(new FavoriteEntry(entry.path, entry.color, entry.icon));
-        }
+        myModel.replaceAll(entries);
     }
 
     private static @Nullable FileManagerStateService stateService() {
@@ -208,25 +225,5 @@ public class FavoritesEditor {
     private static @Nullable Project currentProject() {
         Project[] projects = ProjectManager.getInstance().getOpenProjects();
         return projects.length > 0 ? projects[0] : null;
-    }
-
-    /** Each row shows the favourite's icon — colour tint or chosen glyph — beside its path. */
-    private static final class FavoriteListCellRenderer implements ListCellRenderer<FavoriteEntry> {
-        private final SimpleColoredComponent myDelegate = new SimpleColoredComponent();
-
-        @Override
-        public Component getListCellRendererComponent(JList<? extends FavoriteEntry> list,
-                                                      @Nullable FavoriteEntry value, int index,
-                                                      boolean isSelected, boolean cellHasFocus) {
-            myDelegate.clear();
-            myDelegate.setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
-            myDelegate.setForeground(isSelected ? list.getSelectionForeground() : list.getForeground());
-            myDelegate.setOpaque(true);
-            if (value != null) {
-                myDelegate.setIcon(FavoriteIcons.favoriteIcon(value.color, value.icon));
-                myDelegate.append(value.path);
-            }
-            return myDelegate;
-        }
     }
 }

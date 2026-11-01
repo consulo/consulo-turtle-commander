@@ -4,9 +4,11 @@ import consulo.annotation.component.ActionImpl;
 import consulo.localize.LocalizeValue;
 import consulo.turtlecommander.model.FileEntry;
 import consulo.turtlecommander.service.FileManagerStateService;
-import consulo.turtlecommander.ui.FileManagerPanel;
-import consulo.turtlecommander.ui.FileTab;
+import consulo.turtlecommander.ui.FileManagerTab;
 import consulo.ui.ex.action.AnActionEvent;
+import consulo.turtlecommander.ui.FileManagerTabStrip;
+import consulo.turtlecommander.ui.UnifiedFileTab;
+import org.jspecify.annotations.Nullable;
 
 /** Opens the right-clicked directory in a new tab. */
 @ActionImpl(id = "TurtleCommander.OpenInNewTab")
@@ -16,12 +18,21 @@ public class OpenInNewTabAction extends FileContextAction {
     }
 
     @Override
-    protected void performOnTab(FileTab tab, AnActionEvent e) {
+    protected void performOnTab(FileManagerTab tab, AnActionEvent e) {
         FileEntry entry = FileContextMenuState.getClickedEntry(e);
-        FileManagerStateService stateService = ActionTargets.stateService(e);
-        FileManagerPanel panel = stateService != null ? stateService.getActivePanel() : null;
-        if (entry != null && panel != null) {
-            panel.openDirectoryInNewTab(entry.path(), null);
+        FileManagerTabStrip strip = tab instanceof UnifiedFileTab ? unifiedPane(e) : swingPanel(e);
+        if (entry != null && strip != null) {
+            strip.openDirectoryInNewTab(entry.path(), null);
         }
+    }
+
+    private static @Nullable FileManagerTabStrip unifiedPane(AnActionEvent e) {
+        FileManagerStateService stateService = ActionTargets.stateService(e);
+        return stateService != null ? stateService.getUnifiedActivePane() : null;
+    }
+
+    private static @Nullable FileManagerTabStrip swingPanel(AnActionEvent e) {
+        FileManagerStateService stateService = ActionTargets.stateService(e);
+        return stateService != null ? stateService.getActivePanel() : null;
     }
 }

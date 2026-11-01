@@ -1,7 +1,7 @@
 package consulo.turtlecommander.action;
 
 import consulo.localize.LocalizeValue;
-import consulo.turtlecommander.ui.FileTab;
+import consulo.turtlecommander.ui.FileManagerTab;
 import consulo.ui.ex.action.AnActionEvent;
 import org.jspecify.annotations.Nullable;
 
@@ -19,31 +19,31 @@ public abstract class FileManagerAction extends EdtAction {
 
     @Override
     public void update(AnActionEvent e) {
-        FileTab tab = ActionTargets.findActiveTab(e);
+        FileManagerTab tab = ActionTargets.findActiveTab(e);
         e.getPresentation().setEnabled(tab != null && tab.hasAnyViewFocus());
     }
 
     @Override
     public void actionPerformed(AnActionEvent e) {
-        FileTab tab = ActionTargets.findActiveTab(e);
+        FileManagerTab tab = ActionTargets.findActiveTab(e);
         if (tab != null) {
             performOnTab(tab, e);
         }
     }
 
-    protected abstract void performOnTab(FileTab tab, AnActionEvent e);
+    protected abstract void performOnTab(FileManagerTab tab, AnActionEvent e);
 
     /** Base for the many actions that just delegate to a single tab operation. */
     public abstract static class Simple extends FileManagerAction {
-        private final Consumer<FileTab> myOperation;
+        private final Consumer<FileManagerTab> myOperation;
 
-        protected Simple(LocalizeValue text, @Nullable String defaultShortcut, Consumer<FileTab> operation) {
+        protected Simple(LocalizeValue text, @Nullable String defaultShortcut, Consumer<FileManagerTab> operation) {
             super(text, defaultShortcut);
             myOperation = operation;
         }
 
         @Override
-        protected void performOnTab(FileTab tab, AnActionEvent e) {
+        protected void performOnTab(FileManagerTab tab, AnActionEvent e) {
             myOperation.accept(tab);
         }
     }

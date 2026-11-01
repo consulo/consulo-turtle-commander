@@ -7,21 +7,22 @@ import consulo.application.Application;
 import consulo.application.util.SystemInfo;
 import consulo.disposer.Disposable;
 import consulo.logging.Logger;
+import consulo.platform.Platform;
+import consulo.platform.PlatformFeature;
 import consulo.turtlecommander.model.FileEntry;
+import consulo.turtlecommander.model.FileRoot;
 import consulo.turtlecommander.settings.ColorRule;
 import consulo.turtlecommander.settings.ColorRuleManager;
 import consulo.turtlecommander.settings.ColumnConfig;
 import consulo.turtlecommander.settings.RuleMatcher;
 import consulo.turtlecommander.settings.TextProperty;
 import consulo.turtlecommander.settings.TurtleCommanderSettings;
-import consulo.turtlecommander.util.DriveLabels;
 import consulo.turtlecommander.util.FileAttributes;
 import consulo.turtlecommander.vfs.OpenVfsRegistry;
 import consulo.turtlecommander.vfs.VfsPaths;
 import jakarta.inject.Singleton;
 import org.jspecify.annotations.Nullable;
 
-import java.awt.Desktop;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.CopyOption;
@@ -112,7 +113,6 @@ public class FileOperationService implements Disposable {
     }
 
     private final boolean myWindows = SystemInfo.isWindows;
-    private final boolean myMac = SystemInfo.isMac;
 
     private final Map<Path, CachedListing> myListingCache =
         new LinkedHashMap<>(CACHE_MAX_SIZE, 0.75f, true) {
@@ -131,7 +131,7 @@ public class FileOperationService implements Disposable {
      */
     private Predicate<Path> myMoveToTrash = path -> {
         try {
-            return Desktop.getDesktop().moveToTrash(path.toFile());
+            return Platform.current().moveToTrash(path);
         }
         catch (UnsupportedOperationException e) {
             return false;
@@ -139,14 +139,7 @@ public class FileOperationService implements Disposable {
     };
 
     /** Mirrors {@link #myMoveToTrash} so tests can exercise the path without a graphical desktop. */
-    private BooleanSupplier myMoveToTrashSupported = () -> {
-        try {
-            return Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.MOVE_TO_TRASH);
-        }
-        catch (Throwable e) {
-            return false;
-        }
-    };
+    private BooleanSupplier myMoveToTrashSupported = () -> Platform.current().supportsFeature(PlatformFeature.MOVE_TO_TRASH);
 
     // --- Shared drive-roots polling -------------------------------------------------------------
     // Each tab used to run its own 5-second timer around getRoots(), and also called it
@@ -155,14 +148,15 @@ public class FileOperationService implements Disposable {
     // subscribed tab: it scans on a background thread, warms the drive-label cache there too, and
     // notifies listeners on the UI thread only when the list actually changes.
 
-    private final List<Consumer<List<String>>> myRootsListeners = new CopyOnWriteArrayList<>();
+    private final FileRootProvider myRootProvider = new FileRootProvider(Application.get(), Platform.current());
+    private final List<Consumer<List<FileRoot>>> myRootsListeners = new CopyOnWriteArrayList<>();
     private final ScheduledExecutorService myRootsScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread thread = new Thread(r, "TurtleCommander Drive Roots");
         thread.setDaemon(true);
         return thread;
     });
 
-    private volatile @Nullable List<String> myCachedRoots;
+    private volatile @Nullable List<FileRoot> myCachedRoots;
     private @Nullable ScheduledFuture<?> myRootsPollHandle;
 
     /**
@@ -1089,7 +1083,7 @@ public class FileOperationService implements Disposable {
     // --- Drive roots ----------------------------------------------------------------------------
 
     /** Most recent root list produced by the shared poller; null before the first scan. */
-    public @Nullable List<String> currentRoots() {
+    public @Nullable List<FileRoot> currentRoots() {
         return myCachedRoots;
     }
 
@@ -1099,7 +1093,7 @@ public class FileOperationService implements Disposable {
      * first subscriber starts the shared poller; the returned handle unsubscribes, and the poller
      * stops when the last subscriber leaves.
      */
-    public Runnable subscribeToRoots(Consumer<List<String>> listener) {
+    public Runnable subscribeToRoots(Consumer<List<FileRoot>> listener) {
         synchronized (myRootsListeners) {
             myRootsListeners.add(listener);
             if (myRootsPollHandle == null) {
@@ -1108,7 +1102,7 @@ public class FileOperationService implements Disposable {
             }
         }
 
-        List<String> cached = myCachedRoots;
+        List<FileRoot> cached = myCachedRoots;
         if (cached != null) {
             listener.accept(cached);
         }
@@ -1125,14 +1119,10 @@ public class FileOperationService implements Disposable {
     }
 
     private void pollRootsOnce() {
-        List<String> roots;
+        List<FileRoot> roots;
         try {
-            roots = getRoots();
-            // Resolve Windows drive labels here so the UI renderer only ever hits the cache
-            // (getSystemDisplayName is a blocking shell call).
-            for (String root : roots) {
-                DriveLabels.getDisplayText(root);
-            }
+            // Volume labels are read here too, so the UI only ever renders ready-made names.
+            roots = collectRoots();
         }
         catch (Exception e) {
             LOG.debug("Drive roots scan failed", e);
@@ -1144,40 +1134,17 @@ public class FileOperationService implements Disposable {
         }
         myCachedRoots = roots;
 
-        List<Consumer<List<String>>> snapshot = List.copyOf(myRootsListeners);
+        List<Consumer<List<FileRoot>>> snapshot = List.copyOf(myRootsListeners);
         Application.get().invokeLater(() -> {
-            for (Consumer<List<String>> listener : snapshot) {
+            for (Consumer<List<FileRoot>> listener : snapshot) {
                 listener.accept(roots);
             }
         });
     }
 
-    public List<String> getRoots() {
-        List<String> roots = new ArrayList<>();
-
-        if (myWindows) {
-            for (File root : File.listRoots()) {
-                roots.add(root.getAbsolutePath());
-            }
-            addHome(roots);
-            return roots;
-        }
-
-        roots.add("/");
-        addHome(roots);
-
-        if (myMac) {
-            addSubdirectories(roots, Path.of("/Volumes"));
-        }
-        else {
-            addSubdirectories(roots, Path.of("/media"));
-            addSubdirectories(roots, Path.of("/mnt"));
-            String user = System.getProperty("user.name");
-            if (user != null) {
-                addSubdirectories(roots, Path.of("/run/media/" + user));
-            }
-        }
-        return roots;
+    /** Scans the roots afresh; blocks, so call it off the UI thread. See {@link FileRootProvider#collectRoots()}. */
+    public List<FileRoot> collectRoots() {
+        return myRootProvider.collectRoots();
     }
 
     @Override
@@ -1348,32 +1315,6 @@ public class FileOperationService implements Disposable {
         }
     }
 
-    private static void addHome(List<String> roots) {
-        String home = System.getProperty("user.home");
-        if (home == null) {
-            return;
-        }
-        Path homePath = Path.of(home);
-        if (Files.exists(homePath) && Files.isDirectory(homePath)) {
-            roots.add(homePath.toString());
-        }
-    }
-
-    private static void addSubdirectories(List<String> roots, Path dir) {
-        if (!Files.exists(dir) || !Files.isDirectory(dir)) {
-            return;
-        }
-        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
-            for (Path child : stream) {
-                if (Files.isDirectory(child)) {
-                    roots.add(child.toString());
-                }
-            }
-        }
-        catch (Exception e) {
-            LOG.debug("Cannot list mount point directory " + dir, e);
-        }
-    }
 
     private static String dosAttrsToString(DosFileAttributes attrs) {
         StringBuilder sb = new StringBuilder(4);

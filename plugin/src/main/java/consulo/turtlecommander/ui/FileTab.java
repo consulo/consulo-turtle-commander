@@ -4,20 +4,21 @@ import consulo.disposer.Disposable;
 import consulo.logging.Logger;
 import consulo.project.Project;
 import consulo.turtlecommander.model.FileEntry;
-import consulo.turtlecommander.dialog.DriveSpaceDialog;
+import consulo.turtlecommander.dialog.DriveSpaceDialogDescriptor;
 import consulo.turtlecommander.filetype.TurtleCommanderNotifications;
 import consulo.turtlecommander.model.DriveInfo;
 import consulo.turtlecommander.service.FileManagerStateService;
 import consulo.turtlecommander.service.FileOperationService;
 import consulo.turtlecommander.service.TabState;
 import consulo.turtlecommander.settings.ComponentStyle;
+import consulo.turtlecommander.settings.StyleSet;
 import consulo.turtlecommander.settings.ThumbnailSize;
 import consulo.turtlecommander.settings.TurtleCommanderSettings;
 import consulo.turtlecommander.util.UiTask;
 import consulo.turtlecommander.vfs.VfsStackEntry;
 import consulo.turtlecommander.vfs.VirtualFileSystem;
 import consulo.turtlecommander.vfs.VirtualFileSystemRegistry;
-import consulo.ui.ex.awt.ComboBox;
+import consulo.ui.UIAccess;
 import consulo.ui.ex.awt.JBList;
 import consulo.ui.ex.awt.speedSearch.SpeedSearchBase;
 import consulo.ui.ex.awt.table.JBTable;
@@ -27,7 +28,6 @@ import org.jspecify.annotations.Nullable;
 import javax.swing.DefaultCellEditor;
 import javax.swing.DefaultListModel;
 import javax.swing.JComponent;
-import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTable;
 import javax.swing.JTextField;
@@ -71,7 +71,7 @@ import java.util.function.Supplier;
  * menus, and the file operations. This class owns the state they operate on and exposes it through
  * accessors.
  */
-public class FileTab extends JPanel implements Disposable {
+public class FileTab extends JPanel implements Disposable, FileManagerTab {
     private static final Logger LOG = Logger.getInstance(FileTab.class);
 
     private static final int DEFAULT_ROW_HEIGHT = 20;
@@ -107,11 +107,10 @@ public class FileTab extends JPanel implements Disposable {
 
     // --- Header / footer ------------------------------------------------------------------------
 
-    private final DriveComboController myDriveCombo = new DriveComboController(() -> getCurrentVfs() != null);
-    private final BreadcrumbPathField myPathField = new BreadcrumbPathField();
-    private final JLabel myStatusLabel = new JLabel(" ");
-    private final JLabel myFreeSpaceLabel = new JLabel(" ");
-    private final JPanel myStatusPanel = new JPanel(new BorderLayout());
+    private final UnifiedPathField myPathField = new UnifiedPathField();
+    private final UnifiedStatusBar myStatusBar = new UnifiedStatusBar();
+    /** The Swing tab is built on the event thread, which is the UI every desktop component answers to. */
+    private final UIAccess myUIAccess = UIAccess.current();
     private final QuickFilterBar myQuickFilterBar;
     private final QuickFilterMatcher myFilterMatcher = new QuickFilterMatcher();
 
@@ -137,18 +136,12 @@ public class FileTab extends JPanel implements Disposable {
     private final Color myDefaultViewForeground = myTable.getForeground();
     private final Color myDefaultViewBackground = myTable.getBackground();
     private final Color myDefaultSelectionBackground = myTable.getSelectionBackground();
-    private final Font myDefaultDriveComboFont = myDriveCombo.getComponent().getFont();
-    private final Color myDefaultDriveComboForeground = myDriveCombo.getComponent().getForeground();
-    private final Color myDefaultDriveComboBackground = myDriveCombo.getComponent().getBackground();
     private final @Nullable Font myDefaultHeaderFont =
         myTable.getTableHeader() != null ? myTable.getTableHeader().getFont() : null;
     private final @Nullable Color myDefaultHeaderForeground =
         myTable.getTableHeader() != null ? myTable.getTableHeader().getForeground() : null;
     private final @Nullable Color myDefaultHeaderBackground =
         myTable.getTableHeader() != null ? myTable.getTableHeader().getBackground() : null;
-    private final Font myDefaultStatusFont = myStatusLabel.getFont();
-    private final Color myDefaultStatusForeground = myStatusLabel.getForeground();
-    private final Color myDefaultStatusBackground = myStatusPanel.getBackground();
 
     /** Unsubscribes this tab from the shared drive-roots poller; null when not subscribed. */
     private @Nullable Runnable myUnsubscribeDriveRoots;
@@ -243,9 +236,9 @@ public class FileTab extends JPanel implements Disposable {
      */
     public void initializeViews() {
         FileTabSetupUtil.setUp(this);
-        if (!TurtleCommanderSettings.getInstance().getState().hideDriveSelector) {
-            startDriveUpdates();
-        }
+        // the path bar starts its trail at the root the location lives under, so it needs the roots even when it
+        // does not offer them
+        myUnsubscribeDriveRoots = myFileOps.subscribeToRoots(myPathField::setRoots);
         applyPanelFont();
         applyVisibilitySettings();
 
@@ -318,24 +311,12 @@ public class FileTab extends JPanel implements Disposable {
         return myViewCardLayout;
     }
 
-    public DriveComboController getDriveCombo() {
-        return myDriveCombo;
-    }
-
-    public BreadcrumbPathField getPathField() {
+    public UnifiedPathField getPathField() {
         return myPathField;
     }
 
-    public JLabel getStatusLabel() {
-        return myStatusLabel;
-    }
-
-    public JLabel getFreeSpaceLabel() {
-        return myFreeSpaceLabel;
-    }
-
-    public JPanel getStatusPanel() {
-        return myStatusPanel;
+    public UnifiedStatusBar getStatusBar() {
+        return myStatusBar;
     }
 
     public QuickFilterBar getQuickFilterBar() {
@@ -538,24 +519,9 @@ public class FileTab extends JPanel implements Disposable {
 
     public void applyVisibilitySettings() {
         TurtleCommanderSettings.State settings = TurtleCommanderSettings.getInstance().getState();
-        myDriveCombo.getComponent().setVisible(!settings.hideDriveSelector);
-        myStatusPanel.setVisible(!settings.hideStatusBar);
+        myPathField.setRootListEnabled(!settings.hideDriveSelector);
+        myStatusBar.getComponent().setVisible(!settings.hideStatusBar);
         myEnableFileNameHighlighting = settings.enableFileNameHighlighting;
-        // Polling for removable media is pointless while the selector is hidden.
-        if (settings.hideDriveSelector) {
-            stopDriveUpdates();
-        }
-        else {
-            startDriveUpdates();
-        }
-    }
-
-    private void startDriveUpdates() {
-        if (myUnsubscribeDriveRoots != null) {
-            return;
-        }
-        myUnsubscribeDriveRoots = myFileOps.subscribeToRoots(
-            roots -> myDriveCombo.acceptRoots(roots, myCurrentPath));
     }
 
     private void stopDriveUpdates() {
@@ -563,18 +529,17 @@ public class FileTab extends JPanel implements Disposable {
             myUnsubscribeDriveRoots.run();
             myUnsubscribeDriveRoots = null;
         }
-        myDriveCombo.clearPending();
     }
 
+    /** The drive selector shortcut: the roots the path bar's first crumb lists. */
     public void showDriveSelector() {
-        myDriveCombo.getComponent().requestFocusInWindow();
-        myDriveCombo.getComponent().showPopup();
+        myPathField.showRoots();
     }
 
     /** Collects the volume list off the UI thread — stat'ing a dead mount can block for seconds. */
     public void showDriveSpace() {
-        UiTask.backgroundThenUi(DriveInfo::collectAll,
-            drives -> new DriveSpaceDialog(myProject, drives).show());
+        UiTask.backgroundThenUi(() -> DriveInfo.collectAll(myFileOps.collectRoots()),
+            drives -> DriveSpaceDialogDescriptor.show(myProject, drives));
     }
 
     public void setShowAllNestedFiles(boolean enabled) {
@@ -738,23 +703,13 @@ public class FileTab extends JPanel implements Disposable {
         myList.setSelectionBackground(selection);
         myThumbnailList.setSelectionBackground(selection);
 
-        applyDriveSelectorStyle();
         applyColumnHeaderStyle();
         applyStatusBarStyle();
-        myPathField.applyStyle(settings.getState().styles.pathBarStyle);
         FileTabColumnUtil.reapplyColumnConfig(this);
     }
 
     private static @Nullable Color orDefault(@Nullable Color color, @Nullable Color fallback) {
         return color != null ? color : fallback;
-    }
-
-    private void applyDriveSelectorStyle() {
-        ComponentStyle style = TurtleCommanderSettings.getInstance().getState().styles.driveSelectorStyle;
-        ComboBox<String> combo = myDriveCombo.getComponent();
-        combo.setFont(orDefault(style.getFont(myDefaultDriveComboFont), myDefaultDriveComboFont));
-        combo.setForeground(orDefault(style.parsedFontColor(), myDefaultDriveComboForeground));
-        combo.setBackground(orDefault(style.parsedBackgroundColor(), myDefaultDriveComboBackground));
     }
 
     private void applyColumnHeaderStyle() {
@@ -769,17 +724,9 @@ public class FileTab extends JPanel implements Disposable {
     }
 
     private void applyStatusBarStyle() {
-        ComponentStyle style = TurtleCommanderSettings.getInstance().getState().styles.statusBarStyle;
-        Font font = orDefault(style.getFont(myDefaultStatusFont), myDefaultStatusFont);
-        Color foreground = orDefault(style.parsedFontColor(), myDefaultStatusForeground);
-        Color background = orDefault(style.parsedBackgroundColor(), myDefaultStatusBackground);
-
-        for (JLabel label : List.of(myStatusLabel, myFreeSpaceLabel)) {
-            label.setFont(font);
-            label.setForeground(foreground);
-            label.setBackground(background);
-        }
-        myStatusPanel.setBackground(background);
+        StyleSet styles = TurtleCommanderSettings.getInstance().getState().styles;
+        myStatusBar.applyStyle(styles.statusBarStyle);
+        myPathField.applyStyle(styles.pathBarStyle);
     }
 
     private static @Nullable Font orDefault(@Nullable Font font, @Nullable Font fallback) {
@@ -800,7 +747,7 @@ public class FileTab extends JPanel implements Disposable {
         if (myViewMode == ViewMode.TREE && !myShowAllNestedFiles) {
             // A flat glob doesn't map onto a lazily-loaded hierarchy, so refuse rather than showing
             // a bar that does nothing.
-            myStatusLabel.setText("Quick filter is not available in the directory tree");
+            myStatusBar.setSummary("Quick filter is not available in the directory tree");
             return;
         }
         myQuickFilterBar.activate();
@@ -868,6 +815,132 @@ public class FileTab extends JPanel implements Disposable {
     }
 
     /** True when keyboard focus is inside any of the four views owned by this tab. */
+    @Override
+    public String getDisplayPath() {
+        return FileTabVfsUtil.getDisplayPath(this);
+    }
+
+    @Override
+    public void goUp() {
+        FileTabNavigationUtil.goUp(this);
+    }
+
+    @Override
+    public void goToRoot() {
+        FileTabNavigationUtil.goToRoot(this);
+    }
+
+    @Override
+    public void openSelectedEntry() {
+        FileTabNavigationUtil.openSelectedEntry(this);
+    }
+
+    @Override
+    public void selectFirstRow() {
+        FileTabSelectionUtil.selectFirstRow(this);
+    }
+
+    @Override
+    public void selectLastRow() {
+        FileTabSelectionUtil.selectLastRow(this);
+    }
+
+    @Override
+    public void selectAllEntries() {
+        FileTabSelectionUtil.selectAllEntries(this);
+    }
+
+    @Override
+    public void unselectAllEntries() {
+        FileTabSelectionUtil.unselectAllEntries(this);
+    }
+
+    @Override
+    public void invertSelection() {
+        FileTabSelectionUtil.invertSelectionEntries(this);
+    }
+
+    @Override
+    public void toggleSelection() {
+        FileTabSelectionUtil.toggleSelection(this);
+    }
+
+    @Override
+    public void toggleSelectionAndMoveDown() {
+        FileTabSelectionUtil.toggleSelectionAndMoveDown(this);
+    }
+
+    @Override
+    public void saveSelection() {
+        FileTabSelectionUtil.saveCurrentSelection(this);
+    }
+
+    @Override
+    public void restoreSavedSelection() {
+        FileTabSelectionUtil.restoreSavedSelection(this);
+    }
+
+    @Override
+    public void markByMask(String mask, boolean select, boolean includeDirectories) {
+        if (select) {
+            FileTabSelectionUtil.selectByMask(this, mask, includeDirectories);
+        }
+        else {
+            FileTabSelectionUtil.unselectByMask(this, mask, includeDirectories);
+        }
+    }
+
+    @Override
+    public void markSameExtension(boolean select) {
+        if (select) {
+            FileTabSelectionUtil.selectSameExtension(this);
+        }
+        else {
+            FileTabSelectionUtil.unselectSameExtension(this);
+        }
+    }
+
+    @Override
+    public void showContextMenu() {
+        FileTabContextMenuUtil.showContextMenuForSelection(this);
+    }
+
+    @Override
+    public UIAccess getUIAccess() {
+        return myUIAccess;
+    }
+
+    @Override
+    public List<FileEntry> getSelectedEntries() {
+        return FileTabSelectionUtil.getSelectedEntries(this);
+    }
+
+    @Override
+    public void refresh() {
+        FileTabNavigationUtil.refresh(this, true);
+    }
+
+    @Override
+    public void navigateTo(Path directory, @Nullable String selectName) {
+        UiTask.background(() -> FileTabNavigationUtil.navigateTo(this, directory, selectName, true));
+    }
+
+    @Override
+    public @Nullable FileEntry getSelectedEntry() {
+        return FileTabSelectionUtil.getSelectedEntry(this);
+    }
+
+    @Override
+    public List<FileEntry> getDisplayedEntries() {
+        return FileTabSelectionUtil.getDisplayedEntries(this);
+    }
+
+    @Override
+    public void startRename() {
+        FileTabOperationUtil.startRename(this);
+    }
+
+    @Override
     public boolean hasAnyViewFocus() {
         return myTable.hasFocus() || myList.hasFocus() || myThumbnailList.hasFocus() || myTree.hasFocus();
     }
@@ -893,13 +966,13 @@ public class FileTab extends JPanel implements Disposable {
             }
         }
 
-        myStatusLabel.setText(StatusBarTextUtil.summary(entries,
+        myStatusBar.setSummary(StatusBarTextUtil.summary(entries,
             FileTabSelectionUtil.getSelectedEntries(this), myDirectorySizes));
 
         Path path = myCurrentPath;
         if (!path.equals(myFreeSpaceLastPath)) {
             myFreeSpaceLastPath = path;
-            UiTask.backgroundThenUi(() -> StatusBarTextUtil.freeSpace(path), myFreeSpaceLabel::setText);
+            UiTask.backgroundThenUi(() -> StatusBarTextUtil.freeSpace(path), myStatusBar::setFreeSpace);
         }
     }
 

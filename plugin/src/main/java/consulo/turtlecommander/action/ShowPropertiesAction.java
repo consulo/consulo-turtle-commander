@@ -3,13 +3,15 @@ package consulo.turtlecommander.action;
 import consulo.annotation.component.ActionImpl;
 import consulo.application.util.SystemInfo;
 import consulo.localize.LocalizeValue;
-import consulo.project.Project;
-import consulo.turtlecommander.dialog.PropertiesDialog;
 import consulo.turtlecommander.model.FileEntry;
-import consulo.turtlecommander.ui.FileTab;
+import consulo.turtlecommander.ui.FileManagerTab;
 import consulo.turtlecommander.util.NativeProperties;
 import consulo.turtlecommander.util.UiTask;
 import consulo.ui.ex.action.AnActionEvent;
+import consulo.application.Application;
+import consulo.platform.Platform;
+import consulo.ui.ex.dialog.DialogService;
+import consulo.turtlecommander.dialog.PropertiesDialogDescriptor;
 
 /**
  * Shows the platform's Properties / Get Info dialog for the right-clicked entry, falling back to a
@@ -31,23 +33,24 @@ public class ShowPropertiesAction extends FileContextAction {
     }
 
     @Override
-    protected void performOnTab(FileTab tab, AnActionEvent e) {
+    protected void performOnTab(FileManagerTab tab, AnActionEvent e) {
         FileEntry entry = FileContextMenuState.getClickedEntry(e);
         if (entry == null) {
             return;
         }
-        Project project = e.getData(Project.KEY);
         // Inside an archive the path points at a temp-extracted copy, whose size, dates and owner
-        // don't match the archive entry — go straight to the Swing dialog, which reads the entry
-        // record we already have.
-        boolean canUseNative = !tab.isInsideArchive();
+        // don't match the archive entry — go straight to the dialog, which reads the entry record we
+        // already have. In a browser the native window would open on the server's desktop, not the user's.
+        boolean canUseNative = !tab.isInsideArchive() && !Platform.current().isInBrowser();
 
         // The native call shells out and can block for up to a second, so it runs off the UI thread
         // and only the fallback dialog hops back.
         UiTask.background(() -> {
             boolean opened = canUseNative && NativeProperties.showProperties(entry.path());
             if (!opened) {
-                UiTask.ui(() -> new PropertiesDialog(project, entry).show());
+                tab.getUIAccess().give(() -> Application.get().getInstance(DialogService.class)
+                    .build(new PropertiesDialogDescriptor(entry))
+                    .showAsync());
             }
         });
     }

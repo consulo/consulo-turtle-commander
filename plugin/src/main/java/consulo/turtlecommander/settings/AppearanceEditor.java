@@ -2,40 +2,35 @@ package consulo.turtlecommander.settings;
 
 import consulo.fileChooser.FileChooserDescriptor;
 import consulo.fileChooser.FileChooserFactory;
-import consulo.turtlecommander.dialog.InputDialog;
-import consulo.ui.ex.awt.ComboBox;
-import consulo.ui.ex.awt.JBLabel;
-import consulo.ui.ex.awt.JBList;
-import consulo.ui.ex.awt.JBUI;
-import consulo.ui.ex.awt.Messages;
+import consulo.localize.LocalizeValue;
+import consulo.ui.Button;
+import consulo.ui.ComboBox;
+import consulo.ui.Component;
+import consulo.ui.InputBoxBuilder;
+import consulo.ui.Label;
+import consulo.ui.ListBox;
+import consulo.ui.MessageBoxes;
+import consulo.ui.Separator;
+import consulo.ui.Space;
+import consulo.ui.annotation.RequiredUIAccess;
+import consulo.ui.layout.DockLayout;
+import consulo.ui.layout.HorizontalLayout;
+import consulo.ui.layout.LabeledLayout;
+import consulo.ui.layout.ScrollableLayout;
+import consulo.ui.layout.VerticalLayout;
+import consulo.ui.model.FlatDataModel;
+import consulo.ui.model.MutableFlatDataModel;
 import org.jspecify.annotations.Nullable;
 
-import javax.swing.BorderFactory;
-import javax.swing.Box;
-import javax.swing.DefaultComboBoxModel;
-import javax.swing.DefaultListModel;
-import javax.swing.JButton;
-import javax.swing.JComponent;
-import javax.swing.JList;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.JSeparator;
-import javax.swing.ListCellRenderer;
-import javax.swing.ListSelectionModel;
-import javax.swing.SwingConstants;
-import java.awt.BorderLayout;
-import java.awt.Component;
-import java.awt.Dimension;
-import java.awt.FlowLayout;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * The Appearance section: a theme selector over a per-component style editor.
@@ -46,45 +41,47 @@ import java.util.Map;
  */
 public class AppearanceEditor {
     private static final int PANEL_HEIGHT = 280;
-    private static final int LABEL_COLUMN_WIDTH = 110;
-    private static final int FIELD_COLUMN_WIDTH = 170;
+    private static final int LIST_WIDTH = 160;
 
     private final Map<StyledComponent, ComponentStyleEditor> myEditors =
         new EnumMap<>(StyledComponent.class);
-    private final ComboBox<Theme> myThemeCombo = new ComboBox<>();
-    private final JPanel myDetailPanel = new JPanel(new BorderLayout());
-    private final JBList<StyledComponent> myComponentList;
-    private final JPanel myPanel;
+    private final MutableFlatDataModel<Theme> myThemeModel = FlatDataModel.of(List.of());
+    private final ComboBox<Theme> myThemeCombo;
+    private final ListBox<StyledComponent> myComponentList;
+    private final Component myComponent;
 
     /** Guards the theme combo's listener while the combo is being repopulated programmatically. */
     private boolean mySuppressThemeAction;
     private Theme myPreviousTheme = Theme.DEFAULT;
 
+    @RequiredUIAccess
     public AppearanceEditor(TurtleCommanderSettings.State settings) {
         for (StyledComponent component : StyledComponent.values()) {
             myEditors.put(component, new ComponentStyleEditor(component.getLabel(),
                 component.styleIn(settings.styles),
-                legacyFamily(component, settings), legacySize(component, settings)));
+                legacyFamily(component, settings), legacySize(component, settings))
+                .withSections(sectionsOf(component)));
         }
 
-        DefaultListModel<StyledComponent> listModel = new DefaultListModel<>();
-        for (StyledComponent component : StyledComponent.values()) {
-            listModel.addElement(component);
-        }
-        myComponentList = new JBList<>(listModel);
-        myComponentList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        myComponentList.setCellRenderer(new ComponentLabelRenderer());
-        myComponentList.addListSelectionListener(e -> renderDetail());
+        myComponentList = ListBox.create(StyledComponent.values());
+        myComponentList.setRenderer((presentation, item) -> {
+            StyledComponent value = item.getValue();
+            presentation.append(value != null ? value.getLabel() : "");
+        });
 
+        myThemeCombo = ComboBox.create(myThemeModel);
+        myThemeCombo.setTextRenderer(theme -> theme != null ? LocalizeValue.of(theme.name()) : LocalizeValue.empty());
         rebuildThemeCombo(settings);
-        myThemeCombo.addActionListener(e -> onThemeSelected());
+        myThemeCombo.addValueListener(event -> onThemeSelected());
 
-        myPanel = buildPanel();
-        myComponentList.setSelectedIndex(0);
+        myComponent = buildPanel();
+        myComponentList.addValueListener(event -> renderDetail());
+        myComponentList.setValueByIndex(0);
+        renderDetail();
     }
 
-    public JPanel getPanel() {
-        return myPanel;
+    public Component getComponent() {
+        return myComponent;
     }
 
     public ComponentStyleEditor editorFor(StyledComponent component) {
@@ -92,117 +89,87 @@ public class AppearanceEditor {
     }
 
     public String getSelectedThemeName() {
-        Object selected = myThemeCombo.getSelectedItem();
-        return selected instanceof Theme theme ? theme.name() : "";
+        Theme selected = myThemeCombo.getValue();
+        return selected != null ? selected.name() : "";
     }
 
-    private JPanel buildPanel() {
-        JScrollPane listScroll = new JScrollPane(myComponentList);
-        listScroll.setPreferredSize(new Dimension(160, 0));
-
-        JPanel styleArea = new JPanel(new BorderLayout(8, 0));
-        styleArea.add(listScroll, BorderLayout.WEST);
-        styleArea.add(myDetailPanel, BorderLayout.CENTER);
-        styleArea.setPreferredSize(new Dimension(Integer.MAX_VALUE, PANEL_HEIGHT));
-        styleArea.setMaximumSize(new Dimension(Integer.MAX_VALUE, PANEL_HEIGHT));
-
-        JPanel panel = new JPanel(new BorderLayout(8, 4));
-        panel.setAlignmentX(JComponent.LEFT_ALIGNMENT);
-        panel.setBorder(BorderFactory.createTitledBorder("Appearance"));
-        panel.add(buildThemeRow(), BorderLayout.NORTH);
-        panel.add(styleArea, BorderLayout.CENTER);
-        return panel;
+    /**
+     * Which rows a component gets depends on what it can actually show: the command bar only has a
+     * background, and only the file panel has selection colours.
+     */
+    private static EnumSet<ComponentStyleEditor.Section> sectionsOf(StyledComponent component) {
+        return switch (component) {
+            case COMMAND_BAR -> EnumSet.of(ComponentStyleEditor.Section.BACKGROUND);
+            case PANEL -> EnumSet.allOf(ComponentStyleEditor.Section.class);
+            default -> EnumSet.of(ComponentStyleEditor.Section.FONT, ComponentStyleEditor.Section.BACKGROUND);
+        };
     }
 
-    private JPanel buildThemeRow() {
-        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        row.add(new JBLabel("Theme:"));
+    @RequiredUIAccess
+    private Component buildPanel() {
+        ScrollableLayout listScroll = ScrollableLayout.create(myComponentList);
+        listScroll.setWidth(LIST_WIDTH);
+
+        // Every form lives in the stack for good and only its visibility follows the selection:
+        // re-parenting the controls on each selection is what the Swing version did, and not every frontend
+        // takes that well.
+        VerticalLayout detailStack = VerticalLayout.create(Space.NONE);
+        for (StyledComponent component : StyledComponent.values()) {
+            detailStack.add(myEditors.get(component).getComponent());
+        }
+
+        DockLayout styleArea = DockLayout.create(Space.MEDIUM);
+        styleArea.left(listScroll).center(detailStack);
+        styleArea.setHeight(PANEL_HEIGHT);
+
+        DockLayout content = DockLayout.create(Space.SMALL);
+        content.top(buildThemeRow()).center(styleArea);
+        return LabeledLayout.create(LocalizeValue.localizeTODO("Appearance"), content);
+    }
+
+    @RequiredUIAccess
+    private Component buildThemeRow() {
+        HorizontalLayout row = HorizontalLayout.create(Space.X_SMALL);
+        row.add(Label.create(LocalizeValue.localizeTODO("Theme:")));
         row.add(myThemeCombo);
         row.add(themeButton("Save", "Save current styles as a new theme", this::saveCurrentTheme));
         row.add(themeButton("Rename", "Rename the selected custom theme", this::renameSelectedTheme));
         row.add(themeButton("Delete", "Delete the selected custom theme", this::deleteSelectedTheme));
-        row.add(separator());
+        row.add(Separator.vertical());
         row.add(themeButton("Export", "Export the selected theme to a file", this::exportSelectedTheme));
         row.add(themeButton("Import", "Import a theme from a file", this::importThemeFromFile));
-        row.add(separator());
+        row.add(Separator.vertical());
         row.add(themeButton("Reset to Defaults", null, this::resetStyles));
         return row;
     }
 
-    private static JButton themeButton(String text, @Nullable String tooltip, Runnable action) {
-        JButton button = new JButton(text);
-        button.setToolTipText(tooltip);
-        button.addActionListener(e -> action.run());
+    @RequiredUIAccess
+    private static Button themeButton(String text, @Nullable String tooltip, @RequiredUIAccess Runnable action) {
+        Button button = Button.create(LocalizeValue.localizeTODO(text));
+        if (tooltip != null) {
+            button.setToolTipText(LocalizeValue.localizeTODO(tooltip));
+        }
+        button.addClickListener(event -> action.run());
         return button;
-    }
-
-    private static JSeparator separator() {
-        JSeparator separator = new JSeparator(SwingConstants.VERTICAL);
-        separator.setPreferredSize(new Dimension(2, 24));
-        return separator;
     }
 
     // --- Detail form ---------------------------------------------------------------------------------
 
-    /**
-     * The selected component's controls. Which rows appear depends on what the component can
-     * actually show: the command bar only has a background, and only the file panel has selection
-     * colours.
-     */
+    /** Shows only the selected component's form. */
+    @RequiredUIAccess
     private void renderDetail() {
-        myDetailPanel.removeAll();
-        StyledComponent component = myComponentList.getSelectedValue();
-        if (component != null) {
-            myDetailPanel.add(buildDetailGrid(component), BorderLayout.NORTH);
+        StyledComponent selected = myComponentList.getValue();
+        for (Map.Entry<StyledComponent, ComponentStyleEditor> entry : myEditors.entrySet()) {
+            entry.getValue().getComponent().setVisible(entry.getKey() == selected);
         }
-        myDetailPanel.revalidate();
-        myDetailPanel.repaint();
-    }
-
-    private JPanel buildDetailGrid(StyledComponent component) {
-        ComponentStyleEditor editor = myEditors.get(component);
-        JPanel grid = new JPanel(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.anchor = GridBagConstraints.WEST;
-        gbc.fill = GridBagConstraints.NONE;
-
-        // A spacer row pins the column widths so the form doesn't jump as the selection changes.
-        gbc.insets = JBUI.insets(0, 4);
-        gbc.gridy = 0;
-        gbc.gridx = 0;
-        grid.add(Box.createHorizontalStrut(JBUI.scale(LABEL_COLUMN_WIDTH)), gbc);
-        gbc.gridx = 1;
-        grid.add(Box.createHorizontalStrut(JBUI.scale(FIELD_COLUMN_WIDTH)), gbc);
-        gbc.insets = JBUI.insets(2, 4);
-
-        int row = 1;
-        if (component != StyledComponent.COMMAND_BAR) {
-            row = addRow(grid, gbc, row, "Font:", editor.getFontCombo());
-            row = addRow(grid, gbc, row, "Size:", editor.getSizeSpinner());
-            row = addRow(grid, gbc, row, "Style:", editor.getStyleCombo());
-            row = addRow(grid, gbc, row, "Color:", editor.getColorButton());
-        }
-        row = addRow(grid, gbc, row, "Background:", editor.getBackgroundColorButton());
-        if (component == StyledComponent.PANEL) {
-            row = addRow(grid, gbc, row, "Selected:", editor.getSelectedColorButton());
-            addRow(grid, gbc, row, "Active selected:", editor.getActiveSelectedColorButton());
-        }
-        return grid;
-    }
-
-    private static int addRow(JPanel grid, GridBagConstraints gbc, int row, String label, JComponent field) {
-        gbc.gridy = row;
-        gbc.gridx = 0;
-        grid.add(new JBLabel(label), gbc);
-        gbc.gridx = 1;
-        grid.add(field, gbc);
-        return row + 1;
     }
 
     // --- Themes ---------------------------------------------------------------------------------------
 
+    @RequiredUIAccess
     private void onThemeSelected() {
-        if (mySuppressThemeAction || !(myThemeCombo.getSelectedItem() instanceof Theme theme)) {
+        Theme theme = myThemeCombo.getValue();
+        if (mySuppressThemeAction || theme == null) {
             return;
         }
         Theme previous = myPreviousTheme;
@@ -210,6 +177,7 @@ public class AppearanceEditor {
         applyThemeToEditors(theme, previous);
     }
 
+    @RequiredUIAccess
     private void applyThemeToEditors(Theme theme, Theme previousTheme) {
         TurtleCommanderSettings.State state = TurtleCommanderSettings.getInstance().getState();
 
@@ -243,6 +211,7 @@ public class AppearanceEditor {
         });
     }
 
+    @RequiredUIAccess
     public void rebuildThemeCombo(TurtleCommanderSettings.State state) {
         String currentName = getSelectedThemeName();
         if (currentName.isEmpty()) {
@@ -252,9 +221,10 @@ public class AppearanceEditor {
 
         mySuppressThemeAction = true;
         try {
-            myThemeCombo.setModel(new DefaultComboBoxModel<>(allThemes.toArray(new Theme[0])));
-            myThemeCombo.setSelectedIndex(indexOfTheme(allThemes, currentName));
-            myPreviousTheme = allThemes.get(indexOfTheme(allThemes, currentName));
+            myThemeModel.replaceAll(allThemes);
+            Theme current = allThemes.get(indexOfTheme(allThemes, currentName));
+            myThemeCombo.setValue(current, false);
+            myPreviousTheme = current;
         }
         finally {
             mySuppressThemeAction = false;
@@ -270,59 +240,68 @@ public class AppearanceEditor {
         return 0;
     }
 
+    @RequiredUIAccess
     private void saveCurrentTheme() {
-        InputDialog dialog = new InputDialog(null, "Save Theme", "Enter theme name:", "");
-        if (!dialog.showAndGet()) {
-            return;
-        }
-        String name = dialog.getInputValue();
-        if (name.isBlank()) {
-            Messages.showWarningDialog("Theme name cannot be empty.", "Save Theme");
-            return;
-        }
-        TurtleCommanderSettings.State state = TurtleCommanderSettings.getInstance().getState();
-        // An existing name is replaced in place, which is what "save over this theme" should do.
-        ThemeManager.saveTheme(state, buildThemeFromEditors(name));
-        rebuildThemeCombo(state);
-        selectThemeByName(name);
+        askThemeName("Save Theme", "Enter theme name:", "", name -> {
+            TurtleCommanderSettings.State state = TurtleCommanderSettings.getInstance().getState();
+            // An existing name is replaced in place, which is what "save over this theme" should do.
+            ThemeManager.saveTheme(state, buildThemeFromEditors(name));
+            rebuildThemeCombo(state);
+            selectThemeByName(name);
+        });
     }
 
+    @RequiredUIAccess
     private void renameSelectedTheme() {
         String currentName = getSelectedThemeName();
-        TurtleCommanderSettings.State state = TurtleCommanderSettings.getInstance().getState();
-
-        InputDialog dialog = new InputDialog(null, "Rename Theme", "New name:", currentName);
-        if (!dialog.showAndGet()) {
-            return;
-        }
-        String newName = dialog.getInputValue();
-        if (newName.isBlank()) {
-            Messages.showWarningDialog("Theme name cannot be empty.", "Rename Theme");
-            return;
-        }
-        ThemeManager.RenameResult result = ThemeManager.renameTheme(state, currentName, newName);
-        if (result != ThemeManager.RenameResult.SUCCESS) {
-            Messages.showWarningDialog(renameFailureMessage(currentName, newName, result), "Rename Theme");
-            return;
-        }
-        rebuildThemeCombo(state);
-        selectThemeByName(newName);
+        askThemeName("Rename Theme", "New name:", currentName, newName -> {
+            TurtleCommanderSettings.State state = TurtleCommanderSettings.getInstance().getState();
+            ThemeManager.RenameResult result = ThemeManager.renameTheme(state, currentName, newName);
+            if (result != ThemeManager.RenameResult.SUCCESS) {
+                showWarning(renameFailureMessage(currentName, newName, result), "Rename Theme");
+                return;
+            }
+            rebuildThemeCombo(state);
+            selectThemeByName(newName);
+        });
     }
 
+    /** Hands a confirmed, non-blank name to {@code onName}; a cancelled box does nothing, a blank one warns. */
+    @RequiredUIAccess
+    private void askThemeName(String title, String prompt, String initial, @RequiredUIAccess Consumer<String> onName) {
+        InputBoxBuilder.text()
+            .title(LocalizeValue.localizeTODO(title))
+            .text(LocalizeValue.localizeTODO(prompt))
+            .value(initial)
+            .showAsync(myComponent)
+            .whenComplete((name, error) -> {
+                if (error != null || name == null) {
+                    return;
+                }
+                if (name.isBlank()) {
+                    showWarning("Theme name cannot be empty.", title);
+                    return;
+                }
+                onName.accept(name);
+            });
+    }
+
+    @RequiredUIAccess
     private void deleteSelectedTheme() {
         String name = getSelectedThemeName();
         TurtleCommanderSettings.State state = TurtleCommanderSettings.getInstance().getState();
         if (!ThemeManager.deleteTheme(state, name)) {
-            Messages.showWarningDialog("\"" + name + "\" cannot be deleted.", "Delete Theme");
+            showWarning("\"" + name + "\" cannot be deleted.", "Delete Theme");
             return;
         }
         rebuildThemeCombo(state);
         selectThemeByName(Theme.DEFAULT.name());
     }
 
+    @RequiredUIAccess
     private void exportSelectedTheme() {
-        Object selected = myThemeCombo.getSelectedItem();
-        if (!(selected instanceof Theme theme)) {
+        Theme theme = myThemeCombo.getValue();
+        if (theme == null) {
             return;
         }
         FileChooserDescriptor descriptor = new FileChooserDescriptor(false, true, false, false, false, false);
@@ -337,11 +316,12 @@ public class AppearanceEditor {
                 Files.writeString(target, ThemeManager.exportTheme(theme), StandardCharsets.UTF_8);
             }
             catch (IOException e) {
-                Messages.showWarningDialog("Failed to write " + target + ": " + e.getMessage(), "Export Theme");
+                showWarning("Failed to write " + target + ": " + e.getMessage(), "Export Theme");
             }
         });
     }
 
+    @RequiredUIAccess
     private void importThemeFromFile() {
         FileChooserDescriptor descriptor = new FileChooserDescriptor(true, false, false, false, false, false);
         descriptor.setTitle("Import Theme");
@@ -357,27 +337,41 @@ public class AppearanceEditor {
                     Files.readString(chosen, StandardCharsets.UTF_8));
             }
             catch (IOException e) {
-                Messages.showWarningDialog("Failed to read " + chosen + ": " + e.getMessage(),
-                    "Import Theme");
+                showWarning("Failed to read " + chosen + ": " + e.getMessage(), "Import Theme");
                 return;
             }
             if (theme == null) {
-                Messages.showWarningDialog("Invalid theme file.", "Import Theme");
+                showWarning("Invalid theme file.", "Import Theme");
                 return;
             }
 
             TurtleCommanderSettings.State state = TurtleCommanderSettings.getInstance().getState();
-            boolean overwrite = false;
-            if (ThemeManager.getAllThemes(state).stream().anyMatch(t -> t.name().equals(theme.name()))) {
-                // Replacing loses the existing theme, so ask; declining imports under a unique name.
-                overwrite = Messages.showYesNoDialog(
-                    "A theme named \"" + theme.name() + "\" already exists. Replace it?",
-                    "Import Theme", null) == Messages.YES;
+            if (ThemeManager.getAllThemes(state).stream().noneMatch(t -> t.name().equals(theme.name()))) {
+                importTheme(state, theme, false);
+                return;
             }
-            ThemeManager.ImportOutcome outcome = ThemeManager.importThemeToState(state, theme, overwrite);
-            rebuildThemeCombo(state);
-            selectThemeByName(outcome.name());
+            // Replacing loses the existing theme, so ask; declining - or closing the box - imports under a
+            // unique name.
+            MessageBoxes.yesNo()
+                .title(LocalizeValue.localizeTODO("Import Theme"))
+                .text(LocalizeValue.localizeTODO("A theme named \"" + theme.name() + "\" already exists. Replace it?"))
+                .showAsync(myComponent)
+                .whenComplete((replace, replaceError) -> importTheme(state, theme, Boolean.TRUE.equals(replace)));
         });
+    }
+
+    @RequiredUIAccess
+    private void importTheme(TurtleCommanderSettings.State state, Theme theme, boolean overwrite) {
+        ThemeManager.ImportOutcome outcome = ThemeManager.importThemeToState(state, theme, overwrite);
+        rebuildThemeCombo(state);
+        selectThemeByName(outcome.name());
+    }
+
+    @RequiredUIAccess
+    private void showWarning(String text, String title) {
+        MessageBoxes.okWarning(LocalizeValue.localizeTODO(text))
+            .title(LocalizeValue.localizeTODO(title))
+            .showAsync(myComponent);
     }
 
     private static String renameFailureMessage(String oldName, String newName,
@@ -390,16 +384,18 @@ public class AppearanceEditor {
         };
     }
 
+    @RequiredUIAccess
     private void selectThemeByName(String name) {
-        for (int i = 0; i < myThemeCombo.getItemCount(); i++) {
-            if (myThemeCombo.getItemAt(i).name().equals(name)) {
-                myThemeCombo.setSelectedIndex(i);
+        for (Theme theme : myThemeModel) {
+            if (theme.name().equals(name)) {
+                myThemeCombo.setValue(theme);
                 return;
             }
         }
     }
 
     /** Clears every style override and returns the theme selection to Default. */
+    @RequiredUIAccess
     private void resetStyles() {
         for (ComponentStyleEditor editor : myEditors.values()) {
             editor.resetFrom(new ComponentStyle());
@@ -432,6 +428,7 @@ public class AppearanceEditor {
         settings.themeName = getSelectedThemeName();
     }
 
+    @RequiredUIAccess
     public void resetFrom(TurtleCommanderSettings.State settings) {
         for (StyledComponent component : StyledComponent.values()) {
             myEditors.get(component).resetFrom(component.styleIn(settings.styles),
@@ -469,25 +466,5 @@ public class AppearanceEditor {
             case TAB -> settings.tabFontSize;
             default -> 0;
         };
-    }
-
-    private static final class ComponentLabelRenderer implements ListCellRenderer<StyledComponent> {
-        private final JBLabel myLabel = new JBLabel();
-
-        ComponentLabelRenderer() {
-            myLabel.setBorder(JBUI.Borders.empty(2, 6));
-        }
-
-        @Override
-        public Component getListCellRendererComponent(JList<? extends StyledComponent> list,
-                                                      @Nullable StyledComponent value, int index,
-                                                      boolean isSelected, boolean cellHasFocus) {
-            myLabel.setText(value != null ? value.getLabel() : "");
-            myLabel.setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
-            myLabel.setForeground(isSelected ? list.getSelectionForeground() : list.getForeground());
-            myLabel.setOpaque(true);
-            myLabel.setFont(list.getFont());
-            return myLabel;
-        }
     }
 }

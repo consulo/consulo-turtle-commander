@@ -1,32 +1,32 @@
 package consulo.turtlecommander.ui;
 
-import consulo.ui.ex.awt.SearchTextField;
-import consulo.ui.ex.awt.event.DocumentAdapter;
-import org.jspecify.annotations.Nullable;
+import consulo.localize.LocalizeValue;
+import consulo.platform.base.icon.PlatformIconGroup;
+import consulo.ui.Component;
+import consulo.ui.HasValidator;
+import consulo.ui.ImageBox;
+import consulo.ui.Space;
+import consulo.ui.TextBox;
+import consulo.ui.TextBoxStyle;
+import consulo.ui.annotation.RequiredUIAccess;
+import consulo.ui.event.details.KeyCode;
+import consulo.ui.layout.DockLayout;
 
-import javax.swing.BorderFactory;
-import javax.swing.JPanel;
-import javax.swing.event.DocumentEvent;
-import java.awt.BorderLayout;
-import java.awt.event.KeyAdapter;
-import java.awt.event.KeyEvent;
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
 
 /**
- * Shared quick-filter bar (Ctrl-S) used by the file tab and the search results panel: a platform
- * {@link SearchTextField} with the standard look, embedded find icon and inline clear button.
- * Starts hidden; the owner shows it via {@link #activate()} and decides what filtering means
+ * Shared quick-filter bar (Ctrl-S) used by the file tab and the search results panel: a search box with a find icon
+ * and a clear button. Starts hidden; the owner shows it via {@link #activate()} and decides what filtering means
  * through the callbacks.
  *
- * <p>Key handling matches the hand-built bars it replaced: Esc hides, Up/Down move the owner's
- * selection without leaving the field, Enter moves focus to the owner's view with the filter still
+ * <p>Esc hides, Up/Down move the owner's selection, Enter moves focus to the owner's view with the filter still
  * applied.
  */
-public class QuickFilterBar extends JPanel {
-    private static final String OUTLINE_PROPERTY = "JComponent.outline";
-
-    private final SearchTextField mySearchField = new SearchTextField(false);
+public class QuickFilterBar {
+    private final TextBox myField = TextBox.create();
+    private final DockLayout myRoot = DockLayout.create();
+    private boolean myInvalid;
 
     /**
      * @param onFilterChanged fired on every text change with the current (untrimmed) text
@@ -34,91 +34,90 @@ public class QuickFilterBar extends JPanel {
      * @param onMoveSelection Up/Down delegated from the field; the offset is +1 / -1
      * @param onCommit        Enter: the owner moves focus to its view, keeping the filter applied
      */
+    @RequiredUIAccess
     public QuickFilterBar(Consumer<String> onFilterChanged, Runnable onHideRequested,
                           IntConsumer onMoveSelection, Runnable onCommit) {
-        super(new BorderLayout(4, 0));
+        myField.addStyle(TextBoxStyle.HAS_CLEAR_BUTTON);
+        myField.setPrefixComponent(ImageBox.create(PlatformIconGroup.actionsSearch()));
+        myField.setPlaceholder(LocalizeValue.localizeTODO("Filter, * and ? as wildcards"));
 
-        setVisible(false);
-        setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
-        add(mySearchField, BorderLayout.CENTER);
-
-        mySearchField.getTextEditor().addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                switch (e.getKeyCode()) {
-                    case KeyEvent.VK_ESCAPE -> {
-                        onHideRequested.run();
-                        e.consume();
-                    }
-                    case KeyEvent.VK_UP, KeyEvent.VK_DOWN -> {
-                        onMoveSelection.accept(e.getKeyCode() == KeyEvent.VK_DOWN ? 1 : -1);
-                        e.consume();
-                    }
-                    case KeyEvent.VK_ENTER -> {
-                        onCommit.run();
-                        e.consume();
-                    }
-                    default -> {
-                        // Everything else edits the filter text normally.
-                    }
-                }
+        myField.addKeyPressedListener(event -> {
+            KeyCode keyCode = event.getInputDetails().getKeyCode();
+            if (keyCode == null) {
+                return;
+            }
+            int key = keyCode.key();
+            if (key == KeyCode.ESCAPE.key()) {
+                onHideRequested.run();
+            }
+            else if (key == KeyCode.UP.key() || key == KeyCode.DOWN.key()) {
+                onMoveSelection.accept(key == KeyCode.DOWN.key() ? 1 : -1);
+            }
+            else if (key == KeyCode.ENTER.key()) {
+                onCommit.run();
             }
         });
+        myField.addValueListener(event -> onFilterChanged.accept(getText()));
 
-        mySearchField.addDocumentListener(new DocumentAdapter() {
-            @Override
-            protected void textChanged(DocumentEvent e) {
-                onFilterChanged.accept(mySearchField.getText());
-            }
-        });
+        // a glob which does not parse is flagged the way any invalid input is
+        myField.addValidator(value -> myInvalid ? new HasValidator.ValidationInfo("Invalid pattern") : null);
+
+        myRoot.center(myField);
+        myRoot.paddingBuilder().verticalSet(Space.X_SMALL).horizontalSet(Space.SMALL).apply();
+        myRoot.setVisible(false);
+    }
+
+    public Component getComponent() {
+        return myRoot;
+    }
+
+    public boolean isVisible() {
+        return myRoot.isVisible();
     }
 
     public String getText() {
-        return mySearchField.getText();
+        String text = myField.getValue();
+        return text == null ? "" : text;
     }
 
-    /** Setting the text fires the filter callback through the document listener, like typing does. */
+    /** Setting the text fires the filter callback, like typing does. */
+    @RequiredUIAccess
     public void setText(String text) {
-        mySearchField.setText(text);
+        myField.setValue(text);
     }
 
     /**
-     * Shows the bar empty and focuses the field, or just refocuses when already visible. The owner
-     * revalidates its own layout afterwards.
+     * Shows the bar empty and focuses the field, or just refocuses when already visible.
      */
+    @RequiredUIAccess
     public void activate() {
-        if (isVisible()) {
-            mySearchField.getTextEditor().requestFocusInWindow();
-            return;
+        if (!myRoot.isVisible()) {
+            myRoot.setVisible(true);
+            myField.setValue("");
         }
-        setVisible(true);
-        mySearchField.setText("");
-        mySearchField.getTextEditor().requestFocusInWindow();
+        myField.focus();
     }
 
     /**
-     * Clears the text and hides the bar. Clearing a non-empty field fires the filter callback;
-     * owners that must re-apply unconditionally (empty→empty fires nothing) call their filter
-     * routine explicitly afterwards.
+     * Clears the text and hides the bar. Clearing a non-empty field fires the filter callback; owners that must
+     * re-apply unconditionally (empty to empty fires nothing) call their filter routine explicitly afterwards.
      */
+    @RequiredUIAccess
     public void deactivate() {
-        mySearchField.setText("");
-        setVisible(false);
+        myField.setValue("");
+        myRoot.setVisible(false);
     }
 
     public boolean hasFieldFocus() {
-        return mySearchField.getTextEditor().hasFocus();
+        return myField.hasFocus();
     }
 
-    /**
-     * Toggles the platform error outline — the standard way to flag invalid input (here, a glob
-     * that doesn't parse) instead of hand-tinting colours the LAF can override during paint.
-     */
+    /** Flags the text as an invalid pattern, or clears the flag. */
+    @RequiredUIAccess
     public void setError(boolean error) {
-        @Nullable String newValue = error ? "error" : null;
-        if (!java.util.Objects.equals(mySearchField.getTextEditor().getClientProperty(OUTLINE_PROPERTY), newValue)) {
-            mySearchField.getTextEditor().putClientProperty(OUTLINE_PROPERTY, newValue);
-            mySearchField.getTextEditor().repaint();
+        if (myInvalid != error) {
+            myInvalid = error;
+            myField.validate();
         }
     }
 }

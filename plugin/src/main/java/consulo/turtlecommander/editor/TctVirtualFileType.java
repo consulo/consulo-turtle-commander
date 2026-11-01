@@ -1,7 +1,7 @@
 package consulo.turtlecommander.editor;
 
 import consulo.localize.LocalizeValue;
-import consulo.platform.base.icon.PlatformIconGroup;
+import consulo.turtlecommander.icon.TurtleCommanderIconGroup;
 import consulo.ui.image.Image;
 import consulo.virtualFileSystem.fileType.FileType;
 
@@ -29,6 +29,6 @@ public class TctVirtualFileType implements FileType {
 
     @Override
     public Image getIcon() {
-        return PlatformIconGroup.nodesFolder();
+        return TurtleCommanderIconGroup.turtlecommander();
     }
 }

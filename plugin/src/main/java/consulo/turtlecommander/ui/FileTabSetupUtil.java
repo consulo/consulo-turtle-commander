@@ -18,8 +18,8 @@ import consulo.ui.ex.awt.speedSearch.TableSpeedSearch;
 import consulo.ui.ex.awt.speedSearch.TreeSpeedSearch;
 import consulo.ui.ex.awt.table.JBTable;
 import consulo.ui.ex.awt.tree.Tree;
+import consulo.ui.ex.awtUnsafe.TargetAWT;
 
-import javax.swing.BorderFactory;
 import javax.swing.JComponent;
 import javax.swing.JList;
 import javax.swing.JPanel;
@@ -30,7 +30,6 @@ import javax.swing.event.TreeWillExpandListener;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.TreeSelectionModel;
 import java.awt.BorderLayout;
-import java.awt.Cursor;
 import java.awt.Rectangle;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
@@ -67,9 +66,8 @@ public final class FileTabSetupUtil {
     // --- Header --------------------------------------------------------------------------------------
 
     private static void setupHeader(FileTab tab) {
-        DriveSelectionUtil.install(tab);
-
-        BreadcrumbPathField pathField = tab.getPathField();
+        UnifiedPathField pathField = tab.getPathField();
+        pathField.setOnRootChosen(root -> DriveSelectionUtil.navigateToRoot(tab, root));
         pathField.setOnSegmentClick(segmentPath -> {
             if (tab.isInsideArchive()) {
                 FileTabVfsUtil.handleVfsBreadcrumbClick(tab, segmentPath);
@@ -90,13 +88,13 @@ public final class FileTabSetupUtil {
             });
         });
 
-        pathField.addActionListener(e -> {
+        pathField.setOnSubmit(text -> {
             if (tab.getCurrentVfs() != null) {
                 // Inside an archive the path bar is display-only.
                 tab.focusActiveView();
                 return;
             }
-            Path typed = parseTypedPath(pathField.getText(), tab.getCurrentPath());
+            Path typed = parseTypedPath(text, tab.getCurrentPath());
             Path fallback = tab.getCurrentPath();
             // The ancestor walk stats each level; on a dead UNC path every stat can block for the
             // SMB timeout, so the whole resolution runs off the UI thread.
@@ -113,8 +111,7 @@ public final class FileTabSetupUtil {
         });
 
         JPanel headerPanel = new JPanel(new BorderLayout());
-        headerPanel.add(tab.getDriveCombo().getComponent(), BorderLayout.WEST);
-        headerPanel.add(pathField, BorderLayout.CENTER);
+        headerPanel.add(TargetAWT.to(pathField.getComponent()), BorderLayout.CENTER);
         tab.add(headerPanel, BorderLayout.NORTH);
     }
 
@@ -422,22 +419,11 @@ public final class FileTabSetupUtil {
         tab.getViewCardLayout().show(viewPanel, FileTabViewUtil.cardFor(tab.getViewMode()));
         tab.add(viewPanel, BorderLayout.CENTER);
 
-        tab.getStatusLabel().setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
-        tab.getFreeSpaceLabel().setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
-        tab.getFreeSpaceLabel().setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        tab.getFreeSpaceLabel().setToolTipText("Click to view drive space");
-        tab.getFreeSpaceLabel().addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                tab.showDriveSpace();
-            }
-        });
-        tab.getStatusPanel().add(tab.getStatusLabel(), BorderLayout.WEST);
-        tab.getStatusPanel().add(tab.getFreeSpaceLabel(), BorderLayout.EAST);
+        tab.getStatusBar().setOnFreeSpaceClick(tab::showDriveSpace);
 
         JPanel bottomPanel = new JPanel(new BorderLayout());
-        bottomPanel.add(tab.getQuickFilterBar(), BorderLayout.NORTH);
-        bottomPanel.add(tab.getStatusPanel(), BorderLayout.SOUTH);
+        bottomPanel.add(TargetAWT.to(tab.getQuickFilterBar().getComponent()), BorderLayout.NORTH);
+        bottomPanel.add(TargetAWT.to(tab.getStatusBar().getComponent()), BorderLayout.SOUTH);
         tab.add(bottomPanel, BorderLayout.SOUTH);
     }
 

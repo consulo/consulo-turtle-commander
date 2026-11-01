@@ -2,12 +2,11 @@ package consulo.turtlecommander.action;
 
 import consulo.annotation.component.ActionImpl;
 import consulo.localize.LocalizeValue;
-import consulo.project.Project;
-import consulo.turtlecommander.ui.FileTab;
-import consulo.turtlecommander.ui.FileTabSelectionUtil;
+import consulo.turtlecommander.ui.FileManagerTab;
 import consulo.ui.ex.action.AnActionEvent;
-import consulo.ui.ex.awt.Messages;
-import org.jspecify.annotations.Nullable;
+import consulo.ui.InputBoxBuilder;
+import consulo.ui.annotation.RequiredUIAccess;
+import java.util.function.Consumer;
 
 /** Marks every displayed file matching a glob mask. */
 @ActionImpl(id = "TurtleCommander.SelectByPattern")
@@ -19,17 +18,23 @@ public class SelectByPatternAction extends FileManagerAction {
     }
 
     @Override
-    protected void performOnTab(FileTab tab, AnActionEvent e) {
-        String mask = askForMask(e.getData(Project.KEY), "Select Files");
-        if (mask != null) {
-            FileTabSelectionUtil.selectByMask(tab, mask, false);
-        }
+    protected void performOnTab(FileManagerTab tab, AnActionEvent e) {
+        askForMask("Select Files", mask -> tab.markByMask(mask, true, false));
     }
 
-    /** Returns the trimmed mask, or null when the user cancelled or left it blank. */
-    static @Nullable String askForMask(@Nullable Project project, String title) {
-        String mask = Messages.showInputDialog(project, MASK_PROMPT, title,
-            Messages.getQuestionIcon(), "*.*", null);
-        return mask != null && !mask.isBlank() ? mask.trim() : null;
+    /** Hands the trimmed mask to {@code onMask}; a cancelled or blank answer does nothing. */
+    @RequiredUIAccess
+    static void askForMask(String title, Consumer<String> onMask) {
+        InputBoxBuilder.text()
+            .title(LocalizeValue.localizeTODO(title))
+            .text(LocalizeValue.localizeTODO(MASK_PROMPT))
+            .asQuestion()
+            .value("*.*")
+            .showAsync()
+            .whenComplete((mask, error) -> {
+                if (error == null && mask != null && !mask.isBlank()) {
+                    onMask.accept(mask.trim());
+                }
+            });
     }
 }

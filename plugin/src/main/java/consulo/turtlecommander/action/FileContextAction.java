@@ -2,8 +2,7 @@ package consulo.turtlecommander.action;
 
 import consulo.localize.LocalizeValue;
 import consulo.turtlecommander.model.FileEntry;
-import consulo.turtlecommander.ui.FileTab;
-import consulo.turtlecommander.ui.FileTabSelectionUtil;
+import consulo.turtlecommander.ui.FileManagerTab;
 import consulo.turtlecommander.vfs.VirtualFileSystemRegistry;
 import consulo.ui.ex.action.AnActionEvent;
 import org.jspecify.annotations.Nullable;
@@ -19,7 +18,7 @@ import java.util.function.Consumer;
  * right now — Paste with an empty buffer — stay visible and disable instead.
  */
 public abstract class FileContextAction extends EdtAction {
-    private final @Nullable BiPredicate<FileTab, FileEntry> myApplicable;
+    private final @Nullable BiPredicate<FileManagerTab, FileEntry> myApplicable;
     private final boolean myHideWhenInapplicable;
 
     /**
@@ -27,7 +26,7 @@ public abstract class FileContextAction extends EdtAction {
      * @param hideWhenInapplicable hide rather than disable when {@code applicable} is false
      */
     protected FileContextAction(LocalizeValue text, @Nullable String defaultShortcut,
-                                @Nullable BiPredicate<FileTab, FileEntry> applicable,
+                                @Nullable BiPredicate<FileManagerTab, FileEntry> applicable,
                                 boolean hideWhenInapplicable) {
         super(text);
         setDefaultShortcut(defaultShortcut);
@@ -37,7 +36,7 @@ public abstract class FileContextAction extends EdtAction {
 
     @Override
     public void update(AnActionEvent e) {
-        FileTab tab = FileContextMenuState.getClickedTab(e);
+        FileManagerTab tab = FileContextMenuState.getClickedTab(e);
         FileEntry entry = FileContextMenuState.getClickedEntry(e);
         boolean applicable = tab != null && entry != null
             && (myApplicable == null || myApplicable.test(tab, entry));
@@ -52,27 +51,27 @@ public abstract class FileContextAction extends EdtAction {
 
     @Override
     public void actionPerformed(AnActionEvent e) {
-        FileTab tab = FileContextMenuState.getClickedTab(e);
+        FileManagerTab tab = FileContextMenuState.getClickedTab(e);
         if (tab != null) {
             performOnTab(tab, e);
         }
     }
 
-    protected abstract void performOnTab(FileTab tab, AnActionEvent e);
+    protected abstract void performOnTab(FileManagerTab tab, AnActionEvent e);
 
     /** Base for the context actions that just delegate to a tab operation. */
     public abstract static class Simple extends FileContextAction {
-        private final Consumer<FileTab> myOperation;
+        private final Consumer<FileManagerTab> myOperation;
 
         protected Simple(LocalizeValue text, @Nullable String defaultShortcut,
-                         @Nullable BiPredicate<FileTab, FileEntry> applicable,
-                         boolean hideWhenInapplicable, Consumer<FileTab> operation) {
+                         @Nullable BiPredicate<FileManagerTab, FileEntry> applicable,
+                         boolean hideWhenInapplicable, Consumer<FileManagerTab> operation) {
             super(text, defaultShortcut, applicable, hideWhenInapplicable);
             myOperation = operation;
         }
 
         @Override
-        protected void performOnTab(FileTab tab, AnActionEvent e) {
+        protected void performOnTab(FileManagerTab tab, AnActionEvent e) {
             myOperation.accept(tab);
         }
     }
@@ -80,29 +79,29 @@ public abstract class FileContextAction extends EdtAction {
     // --- Shared applicability predicates ------------------------------------------------------------
 
     /** A real entry, i.e. not the ".." parent link. */
-    public static boolean isRealEntry(FileTab tab, FileEntry entry) {
+    public static boolean isRealEntry(FileManagerTab tab, FileEntry entry) {
         return !entry.parentLink();
     }
 
-    public static boolean isDirectory(FileTab tab, FileEntry entry) {
+    public static boolean isDirectory(FileManagerTab tab, FileEntry entry) {
         return entry.directory() && !entry.parentLink();
     }
 
-    public static boolean isFile(FileTab tab, FileEntry entry) {
+    public static boolean isFile(FileManagerTab tab, FileEntry entry) {
         return !entry.directory() && !entry.parentLink();
     }
 
-    public static boolean isArchive(FileTab tab, FileEntry entry) {
+    public static boolean isArchive(FileManagerTab tab, FileEntry entry) {
         return !entry.directory()
             && VirtualFileSystemRegistry.supportsByExtension(entry.name());
     }
 
     /** A real file on disk — split, combine and linking are meaningless inside an archive. */
-    public static boolean isFileOutsideArchive(FileTab tab, FileEntry entry) {
+    public static boolean isFileOutsideArchive(FileManagerTab tab, FileEntry entry) {
         return isFile(tab, entry) && !tab.isInsideArchive();
     }
 
-    public static boolean hasSelection(FileTab tab, FileEntry entry) {
-        return !FileTabSelectionUtil.getSelectedEntries(tab).isEmpty();
+    public static boolean hasSelection(FileManagerTab tab, FileEntry entry) {
+        return !tab.getSelectedEntries().isEmpty();
     }
 }

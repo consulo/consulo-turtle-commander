@@ -2,8 +2,7 @@ package consulo.turtlecommander.action;
 
 import consulo.annotation.component.ActionImpl;
 import consulo.localize.LocalizeValue;
-import consulo.turtlecommander.ui.FileTab;
-import consulo.turtlecommander.ui.FileTabSelectionUtil;
+import consulo.turtlecommander.ui.FileManagerTab;
 import consulo.ui.ex.action.AnActionEvent;
 
 /** Moves the cursor to the first row. */
@@ -14,7 +13,7 @@ public class GoToFirstAction extends FileManagerAction {
     }
 
     @Override
-    protected void performOnTab(FileTab tab, AnActionEvent e) {
-        FileTabSelectionUtil.selectFirstRow(tab);
+    protected void performOnTab(FileManagerTab tab, AnActionEvent e) {
+        tab.selectFirstRow();
     }
 }
