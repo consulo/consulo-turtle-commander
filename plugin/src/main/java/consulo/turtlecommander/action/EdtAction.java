@@ -5,12 +5,12 @@ import consulo.localize.LocalizeValue;
 import consulo.ui.ex.action.AnAction;
 import consulo.ui.ex.action.AnActionEvent;
 import consulo.ui.ex.action.AnActionWithSyncUpdate;
+import consulo.ui.event.details.KeyStroke;
 import consulo.ui.ex.action.CustomShortcutSet;
 import consulo.ui.ex.action.ShortcutSet;
 import consulo.ui.image.Image;
 import org.jspecify.annotations.Nullable;
 
-import javax.swing.KeyStroke;
 
 /**
  * Base class for the plugin's actions. All of them resolve their enabled/visible state from live
@@ -52,13 +52,13 @@ public abstract class EdtAction extends AnAction implements DumbAware, AnActionW
      * {@code shortcutFrom}, which borrows another action's — so an action sets its own default
      * here, which is the pattern the platform's own actions use.
      *
-     * @param shortcut a {@link KeyStroke#getKeyStroke(String)} spec, e.g. {@code "shift F6"}
+     * @param shortcut a {@link KeyStroke#parse(String)} spec, e.g. {@code "shift F6"}
      */
     protected final void setDefaultShortcut(@Nullable String shortcut) {
         if (shortcut == null) {
             return;
         }
-        KeyStroke keyStroke = KeyStroke.getKeyStroke(shortcut);
+        KeyStroke keyStroke = KeyStroke.parse(shortcut);
         if (keyStroke != null) {
             myDefaultShortcutSet = new CustomShortcutSet(keyStroke);
             setShortcutSet(myDefaultShortcutSet);

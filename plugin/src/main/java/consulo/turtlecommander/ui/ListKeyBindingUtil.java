@@ -1,6 +1,9 @@
 package consulo.turtlecommander.ui;
 
 import consulo.ui.annotation.RequiredUIAccess;
+import consulo.ui.event.details.KeyCode;
+import consulo.ui.event.details.KeyStroke;
+import consulo.ui.event.details.ModifiedInputDetails.Modifier;
 import consulo.ui.ex.action.AnActionEvent;
 import consulo.ui.ex.action.CustomShortcutSet;
 import consulo.ui.ex.action.DumbAwareAction;
@@ -8,9 +11,6 @@ import consulo.ui.ex.action.KeyboardShortcut;
 
 import javax.swing.JComponent;
 import javax.swing.JList;
-import javax.swing.KeyStroke;
-import java.awt.event.InputEvent;
-import java.awt.event.KeyEvent;
 
 /**
  * Keyboard bindings shared by the list-backed views.
@@ -25,26 +25,26 @@ public final class ListKeyBindingUtil {
 
     /** Home/End jump to the first/last row; Shift+Home/End extend the selection from the anchor. */
     public static void installHomeEndBindings(JList<?> list) {
-        register(list, KeyStroke.getKeyStroke(KeyEvent.VK_HOME, 0), () -> {
+        register(list, KeyStroke.pressed(KeyCode.HOME), () -> {
             if (list.getModel().getSize() > 0) {
                 selectAndScroll(list, 0);
             }
         });
 
-        register(list, KeyStroke.getKeyStroke(KeyEvent.VK_END, 0), () -> {
+        register(list, KeyStroke.pressed(KeyCode.END), () -> {
             int last = list.getModel().getSize() - 1;
             if (last >= 0) {
                 selectAndScroll(list, last);
             }
         });
 
-        register(list, KeyStroke.getKeyStroke(KeyEvent.VK_HOME, InputEvent.SHIFT_DOWN_MASK), () -> {
+        register(list, KeyStroke.pressed(KeyCode.HOME, Modifier.SHIFT), () -> {
             if (list.getModel().getSize() > 0) {
                 extendSelectionTo(list, 0);
             }
         });
 
-        register(list, KeyStroke.getKeyStroke(KeyEvent.VK_END, InputEvent.SHIFT_DOWN_MASK), () -> {
+        register(list, KeyStroke.pressed(KeyCode.END, Modifier.SHIFT), () -> {
             int last = list.getModel().getSize() - 1;
             if (last >= 0) {
                 extendSelectionTo(list, last);
@@ -55,8 +55,8 @@ public final class ListKeyBindingUtil {
     /** Space toggles the marked state of the current row; Insert toggles it and moves down. */
     public static void installToggleSelectionBinding(JComponent component, Runnable onToggle,
                                                      Runnable onToggleAndMoveDown) {
-        installShortcut(component, KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), onToggle);
-        installShortcut(component, KeyStroke.getKeyStroke(KeyEvent.VK_INSERT, 0), onToggleAndMoveDown);
+        installShortcut(component, KeyStroke.pressed(KeyCode.SPACE), onToggle);
+        installShortcut(component, KeyStroke.pressed(KeyCode.INSERT), onToggleAndMoveDown);
     }
 
     private static void selectAndScroll(JList<?> list, int index) {

@@ -14,6 +14,7 @@ import consulo.ui.ex.action.AnActionEvent;
 import consulo.ui.ex.action.KeyboardShortcut;
 import consulo.ui.ex.action.Shortcut;
 import consulo.ui.ex.action.util.ShortcutUtil;
+import consulo.ui.ex.awtUnsafe.TargetAWT;
 import consulo.ui.ex.toolWindow.ToolWindow;
 import consulo.virtualFileSystem.VirtualFile;
 import org.jspecify.annotations.Nullable;
@@ -189,13 +190,13 @@ public class CommandBar extends JPanel {
 
     private static int modifierOf(String actionId) {
         KeyboardShortcut shortcut = shortcutOf(actionId);
-        return shortcut != null ? shortcut.getFirstKeyStroke().getModifiers() & MODIFIER_MASK : 0;
+        return shortcut != null ? TargetAWT.toModifiers(shortcut.getFirstKeyStroke().getModifiers()) & MODIFIER_MASK : 0;
     }
 
     /** Orders the row by key code so F1..F12 read left to right regardless of registration order. */
     private static int keyCodeOf(String actionId) {
         KeyboardShortcut shortcut = shortcutOf(actionId);
-        return shortcut != null ? shortcut.getFirstKeyStroke().getKeyCode() : Integer.MAX_VALUE;
+        return shortcut != null ? shortcut.getFirstKeyStroke().getKeyCode().key() : Integer.MAX_VALUE;
     }
 
     private static String shortcutText(String actionId) {
@@ -203,8 +204,7 @@ public class CommandBar extends JPanel {
         if (shortcut == null) {
             return "";
         }
-        KeyStroke keyStroke = shortcut.getFirstKeyStroke();
-        return ShortcutUtil.getKeystrokeText(keyStroke);
+        return ShortcutUtil.getKeystrokeText(shortcut.getFirstKeyStroke());
     }
 
     /**

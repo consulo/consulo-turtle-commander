@@ -15,6 +15,8 @@ import consulo.turtlecommander.service.FileSearchService;
 import consulo.turtlecommander.util.BackgroundProgress;
 import consulo.turtlecommander.util.FileUtils;
 import consulo.turtlecommander.util.UiTask;
+import consulo.ui.event.details.KeyCode;
+import consulo.ui.event.details.ModifiedInputDetails.Modifier;
 import consulo.ui.ex.action.ActionGroup;
 import consulo.ui.ex.action.ActionManager;
 import consulo.ui.ex.action.ActionPopupMenu;
@@ -42,7 +44,6 @@ import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.FlowLayout;
 import java.awt.event.ActionEvent;
-import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -142,7 +143,7 @@ public class SearchResultsPanel extends JPanel implements Disposable {
         // Ctrl+S is the IDE's global "Save All"; a component-local action outranks it, matching
         // how the file panels bind their quick filter.
         ListKeyBindingUtil.installShortcut(myTable,
-            KeyStroke.getKeyStroke(KeyEvent.VK_S, InputEvent.CTRL_DOWN_MASK), this::showQuickFilter);
+            consulo.ui.event.details.KeyStroke.pressed(KeyCode.S, Modifier.CTRL), this::showQuickFilter);
     }
 
     private void applyColumnLayout() {

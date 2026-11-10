@@ -6,6 +6,9 @@ import consulo.turtlecommander.settings.ThumbnailSize;
 import consulo.turtlecommander.settings.TurtleCommanderSettings;
 import consulo.turtlecommander.util.UiTask;
 import consulo.turtlecommander.vfs.VirtualFileSystem;
+import consulo.ui.event.details.KeyCode;
+import consulo.ui.event.details.KeyStroke;
+import consulo.ui.event.details.ModifiedInputDetails.Modifier;
 import consulo.ui.ex.action.AnAction;
 import consulo.ui.ex.action.AnActionEvent;
 import consulo.ui.ex.action.CustomShortcutSet;
@@ -23,7 +26,6 @@ import consulo.ui.ex.awtUnsafe.TargetAWT;
 import javax.swing.JComponent;
 import javax.swing.JList;
 import javax.swing.JPanel;
-import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
 import javax.swing.event.TreeExpansionEvent;
 import javax.swing.event.TreeWillExpandListener;
@@ -33,8 +35,6 @@ import java.awt.BorderLayout;
 import java.awt.Rectangle;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
-import java.awt.event.InputEvent;
-import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.nio.file.Files;
@@ -401,7 +401,7 @@ public final class FileTabSetupUtil {
 
     private static void registerQuickFilterShortcut(FileTab tab) {
         // Ctrl+S is the IDE's global "Save All"; a component-local action outranks it.
-        KeyStroke stroke = KeyStroke.getKeyStroke(KeyEvent.VK_S, InputEvent.CTRL_DOWN_MASK);
+        KeyStroke stroke = KeyStroke.pressed(KeyCode.S, Modifier.CTRL);
         for (JComponent component : List.of(tab.getTable(), tab.getList(), tab.getThumbnailList(),
             tab.getTree())) {
             ListKeyBindingUtil.installShortcut(component, stroke, tab::showQuickFilter);
