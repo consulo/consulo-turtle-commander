@@ -9,11 +9,13 @@ import consulo.platform.PlatformFileSystem;
 import consulo.platform.PlatformOperatingSystem;
 import consulo.platform.base.icon.PlatformIconGroup;
 import consulo.turtlecommander.model.FileRoot;
+import consulo.turtlecommander.model.Machine;
 import consulo.ui.image.Image;
 import consulo.util.lang.StringUtil;
 
 import java.nio.file.DirectoryStream;
 import java.nio.file.FileStore;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -59,6 +61,44 @@ public final class FileRootProvider {
             }
         }
         return List.copyOf(roots.values());
+    }
+
+    /**
+     * This machine, then every remote one - connected or not, choosing one connects to it. Cheap: nothing is asked of
+     * the machines.
+     */
+    public List<Machine> listMachines() {
+        List<Machine> machines = new ArrayList<>();
+        for (UniversalFileChooserContributor contributor : myApplication.getExtensionPoint(UniversalFileChooserContributor.class)
+            .getExtensionList()) {
+            if (contributor.getPlatform() == myPlatform) {
+                machines.add(new Machine("", contributor.getTabTitle(), contributor.getTabIcon(), contributor));
+                break;
+            }
+        }
+        myApplication.getExtensionPoint(PlatformFileChooserContributorProvider.class).forEach(provider -> {
+            for (UniversalFileChooserContributor contributor : provider.getContributors()) {
+                machines.add(new Machine(contributor.getTabTitle().get(), contributor.getTabTitle(), contributor.getTabIcon(),
+                    contributor));
+            }
+        });
+        return machines;
+    }
+
+    /**
+     * The {@link FileRoot#location() location} of the machine {@code path} belongs to - empty for this machine, and for
+     * a path no connected machine owns.
+     */
+    public String locationOf(Path path) {
+        if (path.getFileSystem() == FileSystems.getDefault()) {
+            return "";
+        }
+        for (Machine machine : listMachines()) {
+            if (!machine.isLocal() && machine.contributor().ownsPath(path)) {
+                return machine.location();
+            }
+        }
+        return "";
     }
 
     /** The chooser's own contributors, then the remote targets the providers add as tabs of their own. */

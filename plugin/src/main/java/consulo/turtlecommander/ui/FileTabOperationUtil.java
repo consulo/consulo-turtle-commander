@@ -29,6 +29,7 @@ import consulo.turtlecommander.service.VfsTempCleanup;
 import consulo.turtlecommander.settings.TurtleCommanderSettings;
 import consulo.turtlecommander.util.BackgroundProgress;
 import consulo.turtlecommander.util.FileUtils;
+import consulo.turtlecommander.util.PlatformPaths;
 import consulo.turtlecommander.util.UiTask;
 import consulo.turtlecommander.vfs.OpenVfsRegistry;
 import consulo.turtlecommander.vfs.VfsEditEntry;
@@ -446,9 +447,15 @@ public final class FileTabOperationUtil {
         showDialog(dialog, () -> split(tab, entry, dialog));
     }
 
+    /** The folder a target typed in a dialog is a path of - the other panel's, as the dialogs suggest, so its machine. */
+    private static Path targetContext(FileManagerTab tab) {
+        Path otherPath = tab.getOtherPanelPath();
+        return otherPath != null ? otherPath : tab.getCurrentPath();
+    }
+
     private static void split(FileManagerTab tab, FileEntry entry, SplitFileDialogDescriptor dialog) {
 
-        Path targetDir = Path.of(dialog.getTargetDirectory());
+        Path targetDir = PlatformPaths.parseIn(targetContext(tab), dialog.getTargetDirectory());
         long chunkSize = dialog.isSplitBySize()
             ? dialog.getChunkSize()
             : (entry.size() + dialog.getNumberOfParts() - 1) / dialog.getNumberOfParts();
@@ -557,7 +564,7 @@ public final class FileTabOperationUtil {
     private static void runCombine(FileManagerTab tab, List<Path> chunkFiles,
                                    CombineFilesOperation.@Nullable CrcInfo crcInfo, boolean hasCrc,
                                    String targetDirectory, String targetFileName) {
-        Path targetDir = Path.of(targetDirectory);
+        Path targetDir = PlatformPaths.parseIn(targetContext(tab), targetDirectory);
         try {
             Files.createDirectories(targetDir);
         }
@@ -633,7 +640,7 @@ public final class FileTabOperationUtil {
 
     private static void pack(FileManagerTab tab, List<FileEntry> selected, PackDialogDescriptor dialog) {
 
-        Path archivePath = Path.of(dialog.getArchivePath());
+        Path archivePath = PlatformPaths.parseIn(targetContext(tab), dialog.getArchivePath());
         if (archivePath.getParent() == null) {
             archivePath = tab.getCurrentPath().resolve(archivePath);
         }
@@ -760,7 +767,7 @@ public final class FileTabOperationUtil {
     private static void extractWithDialog(FileManagerTab tab, List<FileEntry> selected, Path destination) {
         ExtractDialogDescriptor dialog = new ExtractDialogDescriptor(selected, destination.toString());
         showDialog(dialog, () -> {
-            Path destPath = Path.of(dialog.getDestinationPath());
+            Path destPath = PlatformPaths.parseIn(tab.getCurrentPath(), dialog.getDestinationPath());
             if (!destPath.isAbsolute()) {
                 destPath = tab.getCurrentPath().resolve(destPath);
             }
@@ -850,7 +857,7 @@ public final class FileTabOperationUtil {
 
     /** Resolves and pre-caches the file type off the UI thread, then opens the editor on it. */
     private static void openInEditor(FileManagerTab tab, Path path) {
-        VirtualFile virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path);
+        VirtualFile virtualFile = PlatformPaths.findVirtualFile(path, true);
         if (virtualFile == null) {
             return;
         }
@@ -1049,7 +1056,7 @@ public final class FileTabOperationUtil {
 
     private static void renameOnDisk(FileManagerTab tab, FileEntry entry, String newName) throws Exception {
         // Prefer the platform's own virtual file system so open editors follow the rename.
-        VirtualFile virtualFile = LocalFileSystem.getInstance().findFileByNioFile(entry.path());
+        VirtualFile virtualFile = PlatformPaths.findVirtualFile(entry.path(), false);
         if (virtualFile != null) {
             UiTask.uiAndWait(() -> {
                 try {

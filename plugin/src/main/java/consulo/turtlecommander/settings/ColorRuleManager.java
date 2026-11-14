@@ -18,6 +18,13 @@ public final class ColorRuleManager {
     }
 
     public static void ensureInitialRules(TurtleCommanderSettings.State state) {
+        // both panels list at once on opening - one of them seeds the rules while the other reads them
+        synchronized (state) {
+            seedInitialRules(state);
+        }
+    }
+
+    private static void seedInitialRules(TurtleCommanderSettings.State state) {
         if (state.colorRulesInitialized) {
             return;
         }
@@ -32,12 +39,14 @@ public final class ColorRuleManager {
     }
 
     public static List<ColorRule> getAllRules(TurtleCommanderSettings.State state) {
-        ensureInitialRules(state);
-        List<ColorRule> rules = new ArrayList<>();
-        for (SavedColorRule saved : state.colorRules) {
-            rules.add(saved.toRule());
+        synchronized (state) {
+            seedInitialRules(state);
+            List<ColorRule> rules = new ArrayList<>();
+            for (SavedColorRule saved : state.colorRules) {
+                rules.add(saved.toRule());
+            }
+            return rules;
         }
-        return rules;
     }
 
     public static List<ColorRule> getActiveRulesForEvaluation(TurtleCommanderSettings.State state) {
@@ -51,26 +60,32 @@ public final class ColorRuleManager {
     }
 
     public static SaveResult saveRule(TurtleCommanderSettings.State state, ColorRule rule) {
-        int index = indexOfRule(state, rule.id());
-        if (index >= 0) {
-            state.colorRules.set(index, SavedColorRule.fromRule(rule));
-            return SaveResult.REPLACED;
+        synchronized (state) {
+            int index = indexOfRule(state, rule.id());
+            if (index >= 0) {
+                state.colorRules.set(index, SavedColorRule.fromRule(rule));
+                return SaveResult.REPLACED;
+            }
+            state.colorRules.add(SavedColorRule.fromRule(rule));
+            return SaveResult.SAVED;
         }
-        state.colorRules.add(SavedColorRule.fromRule(rule));
-        return SaveResult.SAVED;
     }
 
     public static boolean deleteRule(TurtleCommanderSettings.State state, String id) {
-        return state.colorRules.removeIf(saved -> saved.id.equals(id));
+        synchronized (state) {
+            return state.colorRules.removeIf(saved -> saved.id.equals(id));
+        }
     }
 
     /** Overwrites the ruleset with a fresh copy of the built-in defaults. */
     public static void resetToDefaults(TurtleCommanderSettings.State state) {
-        state.colorRules.clear();
-        for (ColorRule rule : ColorRuleDefaults.builtinRules()) {
-            state.colorRules.add(SavedColorRule.fromRule(rule));
+        synchronized (state) {
+            state.colorRules.clear();
+            for (ColorRule rule : ColorRuleDefaults.builtinRules()) {
+                state.colorRules.add(SavedColorRule.fromRule(rule));
+            }
+            state.colorRulesInitialized = true;
         }
-        state.colorRulesInitialized = true;
     }
 
     public static ColorizationMode getMode(TurtleCommanderSettings.State state) {

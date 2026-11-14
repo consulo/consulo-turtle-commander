@@ -71,6 +71,10 @@ public final class StatusBarTextUtil {
             FileStore store = Files.getFileStore(path);
             long usable = store.getUsableSpace();
             long total = store.getTotalSpace();
+            // a store which does not know its space - another machine's - reports it as unlimited
+            if (total == Long.MAX_VALUE || usable == Long.MAX_VALUE) {
+                return "";
+            }
             long percent = total > 0 ? usable * 100 / total : 0;
             return FileUtils.formatSizeAuto(usable) + " of " + FileUtils.formatSizeAuto(total)
                 + " free (" + percent + "%)";

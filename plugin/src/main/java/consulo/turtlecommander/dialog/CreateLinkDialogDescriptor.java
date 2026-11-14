@@ -5,6 +5,7 @@ import consulo.disposer.Disposable;
 import consulo.disposer.Disposer;
 import consulo.localize.LocalizeValue;
 import consulo.turtlecommander.model.FileEntry;
+import consulo.turtlecommander.util.PlatformPaths;
 import consulo.turtlecommander.util.UiTask;
 import consulo.ui.Alerts;
 import consulo.ui.Component;
@@ -240,7 +241,7 @@ public final class CreateLinkDialogDescriptor extends DialogDescriptor {
 
         Path entered;
         try {
-            entered = Path.of(text);
+            entered = PlatformPaths.parseIn(myDestination, text);
         }
         catch (InvalidPathException e) {
             showError("Invalid path: " + e.getMessage());

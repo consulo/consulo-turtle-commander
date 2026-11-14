@@ -4,6 +4,7 @@ import consulo.annotation.component.ActionImpl;
 import consulo.localize.LocalizeValue;
 import consulo.turtlecommander.service.FileManagerStateService;
 import consulo.turtlecommander.ui.FileManagerPanel;
+import consulo.turtlecommander.util.PlatformPaths;
 import consulo.ui.ex.action.AnActionEvent;
 import org.jspecify.annotations.Nullable;
 
@@ -28,7 +29,8 @@ public abstract class QuickAccessFavoriteAction extends FileManagerAction.ToolWi
         // The label names the target so the keymap and Find Action are useful, rather than showing
         // nine identically-named entries.
         if (path != null) {
-            Path fileName = Path.of(path).getFileName();
+            Path favorite = PlatformPaths.fromPersistent(path);
+            Path fileName = favorite != null ? favorite.getFileName() : null;
             e.getPresentation().setText(
                 LocalizeValue.localizeTODO("Go to " + (fileName != null ? fileName : path)));
         }
@@ -44,8 +46,9 @@ public abstract class QuickAccessFavoriteAction extends FileManagerAction.ToolWi
         String path = favoritePath(e);
         FileManagerStateService stateService = ActionTargets.stateService(e);
         FileManagerPanel panel = stateService != null ? stateService.getActivePanel() : null;
-        if (path != null && panel != null) {
-            panel.openDirectoryInNewTab(Path.of(path), null);
+        Path favorite = path != null ? PlatformPaths.fromPersistent(path) : null;
+        if (favorite != null && panel != null) {
+            panel.openDirectoryInNewTab(favorite, null);
         }
     }
 

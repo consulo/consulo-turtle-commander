@@ -11,8 +11,8 @@ import consulo.turtlecommander.model.FileEntry;
 import consulo.turtlecommander.service.FileManagerStateService;
 import consulo.turtlecommander.ui.FileManagerPanel;
 import consulo.turtlecommander.ui.FileManagerTab;
+import consulo.turtlecommander.util.PlatformPaths;
 import consulo.ui.ex.action.AnActionEvent;
-import consulo.virtualFileSystem.LocalFileSystem;
 import consulo.virtualFileSystem.VirtualFile;
 import org.jspecify.annotations.Nullable;
 
@@ -42,8 +42,9 @@ public class CompareFilesAction extends EdtAction {
         if (project == null || pair == null) {
             return;
         }
-        VirtualFile left = LocalFileSystem.getInstance().findFileByNioFile(pair[0].path());
-        VirtualFile right = LocalFileSystem.getInstance().findFileByNioFile(pair[1].path());
+        // the files of the machines the panels show - never the local files with the same paths
+        VirtualFile left = PlatformPaths.findVirtualFile(pair[0].path(), false);
+        VirtualFile right = PlatformPaths.findVirtualFile(pair[1].path(), false);
         if (left == null || right == null) {
             return;
         }

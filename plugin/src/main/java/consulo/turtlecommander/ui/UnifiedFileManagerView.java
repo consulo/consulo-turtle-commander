@@ -2,10 +2,10 @@ package consulo.turtlecommander.ui;
 
 import consulo.disposer.Disposable;
 import consulo.disposer.Disposer;
-import consulo.platform.Platform;
 import consulo.project.Project;
 import consulo.turtlecommander.service.FileManagerState;
 import consulo.turtlecommander.service.FileManagerStateService;
+import consulo.turtlecommander.util.PlatformPaths;
 import consulo.ui.Component;
 import consulo.ui.annotation.RequiredUIAccess;
 import consulo.ui.layout.SplitLayoutPosition;
@@ -57,8 +57,8 @@ public final class UnifiedFileManagerView implements Disposable {
     }
 
     private static Path initialPath(Project project) {
-        String basePath = project.getBasePath();
-        return basePath != null ? Path.of(basePath) : Platform.current().user().homePath();
+        // the project's folder on its machine - a remote project never starts on the local machine
+        return PlatformPaths.projectPath(project);
     }
 
     @Override

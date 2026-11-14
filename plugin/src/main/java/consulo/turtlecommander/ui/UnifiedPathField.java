@@ -3,6 +3,7 @@ package consulo.turtlecommander.ui;
 import consulo.localize.LocalizeValue;
 import consulo.platform.base.icon.PlatformIconGroup;
 import consulo.turtlecommander.model.FileRoot;
+import consulo.turtlecommander.model.Machine;
 import consulo.turtlecommander.settings.ComponentStyle;
 import consulo.ui.Breadcrumbs;
 import consulo.ui.Button;
@@ -33,6 +34,9 @@ import java.util.function.Consumer;
  * that root's name and icon. Clicking that first crumb lists every root to switch to, which is what a separate drive
  * selector used to do. Built on the unified UI, so it runs on every frontend; the trail collapses its middle when it
  * does not fit.
+ *
+ * <p>With other machines around - remote platforms - a machine button leads the bar: it names the machine the location
+ * is on and switches to another one. The trail and the root list only offer the roots of that machine.
  */
 public final class UnifiedPathField {
     /** Typed paths kept for the edit box's history, most recent first. */
@@ -52,16 +56,21 @@ public final class UnifiedPathField {
     private final TextBoxWithHistory myEditBox = TextBoxWithHistory.create();
     private final PlaceholderLayout mySwitcher = PlaceholderLayout.create();
     private final Button myEditButton = Button.create(LocalizeValue.empty());
+    private final Button myMachineButton = Button.create(LocalizeValue.empty());
     private final DockLayout myRoot = DockLayout.create(Space.NONE);
 
     private final List<String> myHistory = new ArrayList<>();
     private List<FileRoot> myRoots = List.of();
+    private List<Machine> myMachines = List.of();
+    /** The machine the location is on - its {@link FileRoot#location()}, empty for this machine. */
+    private String myLocation = "";
     private String myText = "";
     private boolean myEditMode;
     private boolean myRootListEnabled = true;
     private @Nullable Consumer<String> myOnSegmentClick;
     private @Nullable Consumer<String> myOnSubmit;
     private @Nullable Consumer<FileRoot> myOnRootChosen;
+    private @Nullable Consumer<Machine> myOnMachineChosen;
     /** The root list on screen, so a second click replaces it rather than stacking another one over it. */
     private @Nullable LightPopup myRootPopup;
 
@@ -83,7 +92,7 @@ public final class UnifiedPathField {
         });
         myCrumbs.addItemClickListener(event -> {
             PathSegment segment = event.getItem();
-            if (segment.root() != null && myRootListEnabled && !myRoots.isEmpty()) {
+            if (segment.root() != null && myRootListEnabled && !machineRoots().isEmpty()) {
                 showRoots(segment);
                 return;
             }
@@ -115,7 +124,12 @@ public final class UnifiedPathField {
         myEditButton.setToolTipText(LocalizeValue.localizeTODO("Edit Path"));
         myEditButton.addClickListener(event -> setEditMode(!myEditMode));
 
-        myRoot.center(mySwitcher).right(myEditButton);
+        myMachineButton.addStyle(ButtonStyle.BORDERLESS);
+        myMachineButton.setToolTipText(LocalizeValue.localizeTODO("Switch Machine"));
+        myMachineButton.addClickListener(event -> showMachines());
+        myMachineButton.setVisible(false);
+
+        myRoot.left(myMachineButton).center(mySwitcher).right(myEditButton);
     }
 
     public Component getComponent() {
@@ -143,6 +157,90 @@ public final class UnifiedPathField {
         }
         myRoots = List.copyOf(roots);
         myCrumbs.setItems(trail());
+    }
+
+    /** The machines to switch between - the button shows only when there is more than this one. */
+    @RequiredUIAccess
+    public void setMachines(List<Machine> machines) {
+        if (machines.equals(myMachines)) {
+            return;
+        }
+        myMachines = List.copyOf(machines);
+        updateMachineButton();
+    }
+
+    /** The machine the location is on - see {@link FileRoot#location()}; set before the text of a new location. */
+    @RequiredUIAccess
+    public void setLocation(String location) {
+        if (location.equals(myLocation)) {
+            return;
+        }
+        myLocation = location;
+        updateMachineButton();
+        myCrumbs.setItems(trail());
+    }
+
+    /** Receives the machine picked from the machine button's list. */
+    public void setOnMachineChosen(@Nullable Consumer<Machine> onMachineChosen) {
+        myOnMachineChosen = onMachineChosen;
+    }
+
+    @RequiredUIAccess
+    private void updateMachineButton() {
+        Machine current = currentMachine();
+        myMachineButton.setVisible(myMachines.size() > 1);
+        myMachineButton.setText(current != null ? current.title() : LocalizeValue.of(myLocation));
+        myMachineButton.setIcon(current != null ? current.icon() : null);
+    }
+
+    private @Nullable Machine currentMachine() {
+        for (Machine machine : myMachines) {
+            if (machine.location().equals(myLocation)) {
+                return machine;
+            }
+        }
+        return null;
+    }
+
+    @RequiredUIAccess
+    private void showMachines() {
+        ListBox<Machine> list = ListBox.create(myMachines);
+        list.setRenderer((presentation, item) -> {
+            Machine machine = item.getValue();
+            if (machine == null) {
+                return;
+            }
+            presentation.withIcon(machine.icon());
+            presentation.append(machine.title());
+        });
+        list.setSelectOnHover(true);
+        Machine current = currentMachine();
+        if (current != null) {
+            list.setValue(current, false);
+        }
+
+        LightPopup popup = LightPopup.create(PopupOptions.builder().build());
+        popup.setContent(list);
+        list.addClickListener(event -> {
+            Machine chosen = list.getValue();
+            popup.close();
+            Consumer<Machine> onMachineChosen = myOnMachineChosen;
+            if (chosen != null && onMachineChosen != null) {
+                onMachineChosen.accept(chosen);
+            }
+        });
+        popup.showBy(myMachineButton);
+    }
+
+    /** The roots of the machine the location is on - another machine's "/" is not this one's. */
+    private List<FileRoot> machineRoots() {
+        List<FileRoot> roots = new ArrayList<>();
+        for (FileRoot root : myRoots) {
+            if (root.location().equals(myLocation)) {
+                roots.add(root);
+            }
+        }
+        return roots;
     }
 
     /** Off, the first crumb navigates to its root like any other crumb instead of listing the roots. */
@@ -179,7 +277,7 @@ public final class UnifiedPathField {
 
     @RequiredUIAccess
     public void showRoots() {
-        if (!myRootListEnabled || myRoots.isEmpty()) {
+        if (!myRootListEnabled || machineRoots().isEmpty()) {
             return;
         }
         List<PathSegment> items = myCrumbs.getItems();
@@ -198,7 +296,7 @@ public final class UnifiedPathField {
             }
         }
 
-        ListBox<FileRoot> list = ListBox.create(myRoots);
+        ListBox<FileRoot> list = ListBox.create(machineRoots());
         list.setRenderer((presentation, item) -> {
             FileRoot root = item.getValue();
             if (root == null) {
@@ -206,10 +304,6 @@ public final class UnifiedPathField {
             }
             presentation.withIcon(root.icon());
             presentation.append(root.presentableName());
-            if (!root.location().isEmpty()) {
-                // a remote target's roots read the same as this machine's
-                presentation.withSuffix(LocalizeValue.of(root.location()), null);
-            }
         });
         list.setSelectOnHover(true);
         FileRoot current = rootSegment.root();
@@ -289,7 +383,7 @@ public final class UnifiedPathField {
         List<PathSegment> segments = splitPath(myText);
         FileRoot best = null;
         int bestDepth = 0;
-        for (FileRoot root : myRoots) {
+        for (FileRoot root : machineRoots()) {
             List<PathSegment> rootSegments = splitPath(root.path().toString());
             int depth = rootSegments.size();
             if (depth == 0 || depth > segments.size() || depth <= bestDepth) {
@@ -338,13 +432,15 @@ public final class UnifiedPathField {
         }
 
         if (windows) {
-            String[] parts = pathStr.split("\\\\", -1);
+            // the path of another Windows machine may use either separator - "C:/work\src"
+            String separator = pathStr.length() > 2 && pathStr.charAt(2) == '/' ? "/" : "\\";
+            String[] parts = pathStr.split("[\\\\/]", -1);
             for (int i = 0; i < parts.length; i++) {
                 if (parts[i].isEmpty()) {
                     continue;
                 }
-                String displayName = i == 0 ? parts[i] + "\\" : parts[i];
-                String fullPath = i == 0 ? parts[i] + "\\" : String.join("\\", List.of(parts).subList(0, i + 1));
+                String displayName = i == 0 ? parts[i] + separator : parts[i];
+                String fullPath = i == 0 ? parts[i] + separator : String.join(separator, List.of(parts).subList(0, i + 1));
                 segments.add(new PathSegment(displayName, fullPath));
             }
             return segments;

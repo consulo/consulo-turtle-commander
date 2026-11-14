@@ -16,6 +16,7 @@ import consulo.ui.UIAccess;
 import consulo.ui.annotation.RequiredUIAccess;
 import consulo.ui.ex.action.AnActionEvent;
 import consulo.virtualFileSystem.LocalFileSystem;
+import consulo.virtualFileSystem.StandardFileSystems;
 import consulo.virtualFileSystem.VirtualFile;
 import consulo.virtualFileSystem.VirtualFileManager;
 import consulo.virtualFileSystem.archive.ArchiveFileSystem;
@@ -95,12 +96,18 @@ public class OpenInTurtleCommanderAction extends EdtAction {
     }
 
     private static boolean isRevealable(VirtualFile file) {
-        return file.getFileSystem() instanceof LocalFileSystem || file.getFileSystem() instanceof ArchiveFileSystem;
+        return isOnMachine(file) || file.getFileSystem() instanceof ArchiveFileSystem;
+    }
+
+    /** A file of the local machine or of another one - a file of a remote project is one of the platform's. */
+    private static boolean isOnMachine(VirtualFile file) {
+        return file.getFileSystem() instanceof LocalFileSystem
+            || StandardFileSystems.PLATFORM_PROTOCOL.equals(file.getFileSystem().getProtocol());
     }
 
     /** The file as a path: on disk, or inside an archive as a path of the platform's archive file system. */
     private static @Nullable Path toPath(VirtualFile file) {
-        if (file.getFileSystem() instanceof LocalFileSystem) {
+        if (isOnMachine(file)) {
             return file.toNioPath();
         }
         VirtualFile archive = ArchiveVfsUtil.getVirtualFileForArchive(file);

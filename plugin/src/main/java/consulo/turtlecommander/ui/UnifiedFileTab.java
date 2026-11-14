@@ -11,11 +11,13 @@ import consulo.turtlecommander.action.FileManagerAction;
 import consulo.turtlecommander.dialog.DriveSpaceDialogDescriptor;
 import consulo.turtlecommander.model.DriveInfo;
 import consulo.turtlecommander.model.FileEntry;
+import consulo.turtlecommander.model.Machine;
 import consulo.turtlecommander.service.FileOperationService;
 import consulo.turtlecommander.service.TabState;
 import consulo.turtlecommander.settings.ResolvedStyle;
 import consulo.turtlecommander.util.DateTimeFormatters;
 import consulo.turtlecommander.util.FileUtils;
+import consulo.turtlecommander.util.PlatformPaths;
 import consulo.turtlecommander.vfs.VfsStackEntry;
 import consulo.turtlecommander.vfs.VirtualFileSystem;
 import consulo.ui.Component;
@@ -35,7 +37,6 @@ import consulo.ui.layout.VerticalLayout;
 import consulo.ui.model.FlatDataModel;
 import consulo.ui.model.MutableFlatDataModel;
 import consulo.util.lang.StringUtil;
-import consulo.virtualFileSystem.LocalFileSystem;
 import consulo.virtualFileSystem.VirtualFile;
 import org.jspecify.annotations.Nullable;
 
@@ -68,6 +69,8 @@ import consulo.ui.ex.action.ToggleAction;
 import consulo.ui.image.Image;
 import java.util.LinkedHashMap;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import consulo.turtlecommander.action.EdtAction;
 import consulo.turtlecommander.action.UnifiedPaneAction;
@@ -111,6 +114,9 @@ import consulo.turtlecommander.vfs.VfsPaths;
  * session, not a global event thread.
  */
 public final class UnifiedFileTab implements Disposable, FileManagerTab {
+    /** How long switching to a remote machine waits for it to connect. */
+    private static final long MACHINE_CONNECT_TIMEOUT_SECONDS = 30;
+
     public static final Key<UnifiedFileTab> KEY = Key.create(UnifiedFileTab.class);
 
     private static final Logger LOG = Logger.getInstance(UnifiedFileTab.class);
@@ -241,6 +247,8 @@ public final class UnifiedFileTab implements Disposable, FileManagerTab {
         myPathField.setOnSubmit(this::navigateToTyped);
         myPathField.setOnEditModeChanged(editing -> setViewActive(!editing));
         myPathField.setOnRootChosen(root -> navigateTo(root.path()));
+        myPathField.setMachines(myFileOps.listMachines());
+        myPathField.setOnMachineChosen(this::switchToMachine);
         myUnsubscribeRoots = myFileOps.subscribeToRoots(roots -> myUIAccess.give(() -> myPathField.setRoots(roots)));
 
         // stat'ing a dead mount can block for seconds, so the volumes are read off the UI thread
@@ -930,7 +938,7 @@ public final class UnifiedFileTab implements Disposable, FileManagerTab {
             }
             VirtualFile file = path instanceof ArchivePath archivePath
                 ? VirtualFileManager.getInstance().findFileByUrl(archivePath.getVirtualFileUrl())
-                : LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path);
+                : PlatformPaths.findVirtualFile(path, true);
             if (file != null) {
                 myUIAccess.give(() -> FileEditorManager.getInstance(myProject).openFile(file, true));
             }
@@ -982,11 +990,51 @@ public final class UnifiedFileTab implements Disposable, FileManagerTab {
         }
     }
 
+    /**
+     * Shows another machine: the project's folder when the project lives there, the machine's home otherwise. A remote
+     * machine which is not connected is connected to first.
+     */
+    @RequiredUIAccess
+    private void switchToMachine(Machine machine) {
+        // asking a remote machine for its roots connects to it - asked here, on the UI thread, where connecting starts
+        CompletableFuture<?> connected = machine.contributor().getRoots();
+        Application.get().executeOnPooledThread(() -> {
+            Path target;
+            try {
+                connected.get(MACHINE_CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                target = startPathOn(machine);
+            }
+            catch (Exception e) {
+                String reason = e instanceof ExecutionException && e.getCause() != null ? e.getCause().getMessage() : e.getMessage();
+                myUIAccess.give(() -> fileErrorNotification("Cannot connect to " + machine.title().get() + ": " + reason));
+                return;
+            }
+            if (target != null) {
+                Path path = target;
+                myUIAccess.give(() -> navigateTo(path));
+            }
+        });
+    }
+
+    private @Nullable Path startPathOn(Machine machine) {
+        try {
+            Path projectPath = PlatformPaths.projectPath(myProject);
+            if (machine.contributor().ownsPath(projectPath) && Files.isDirectory(projectPath)) {
+                return projectPath;
+            }
+        }
+        catch (RuntimeException e) {
+            // the project's machine is not reachable - it is not the one chosen
+        }
+        return machine.contributor().getHomePath();
+    }
+
     /** A typed or clicked path; a file or a missing path lands on its nearest existing directory. */
     private void navigateToTyped(String text) {
         Path typed;
         try {
-            typed = Path.of(text);
+            // a path of the machine shown - a breadcrumb of a remote folder is a remote path
+            typed = PlatformPaths.parseIn(realDirectoryOf(myCurrentPath), text);
         }
         catch (Exception e) {
             return;
@@ -1067,8 +1115,11 @@ public final class UnifiedFileTab implements Disposable, FileManagerTab {
         myCurrentPath = directory;
         myAllEntries = entries;
         // an archive is not reopened at startup, its folder is
-        myState.path = realDirectoryOf(directory).toString();
+        myState.path = PlatformPaths.toPersistent(realDirectoryOf(directory));
 
+        // the machine first - the trail of the text starts from that machine's roots
+        myPathField.setMachines(myFileOps.listMachines());
+        myPathField.setLocation(myFileOps.locationOf(realDirectoryOf(directory)));
         myPathField.setText(displayPathOf(directory));
         myStatusBar.setFreeSpace(freeSpace);
         if (myQuickFilterBar.isVisible() && !sameDirectory) {

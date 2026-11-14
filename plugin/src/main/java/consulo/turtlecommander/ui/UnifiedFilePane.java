@@ -28,6 +28,7 @@ import consulo.application.Application;
 import consulo.turtlecommander.dialog.FileSearchDialogDescriptor;
 import consulo.turtlecommander.model.FileEntry;
 import consulo.turtlecommander.search.FileSearchCriteria;
+import consulo.turtlecommander.util.PlatformPaths;
 import consulo.ui.ex.dialog.DialogService;
 import consulo.virtualFileSystem.archive.ArchivePath;
 import consulo.ui.ex.action.DumbAwareAction;
@@ -86,7 +87,7 @@ public final class UnifiedFilePane implements Disposable, FileManagerTabStrip {
         myTabs.addStyle(TabbedLayoutStyle.NO_PADDING);
 
         if (state.tabs.isEmpty()) {
-            state.tabs.add(new TabState(fallbackPath.toString(), ViewMode.TABLE.name()));
+            state.tabs.add(new TabState(PlatformPaths.toPersistent(fallbackPath), ViewMode.TABLE.name()));
         }
         for (TabState tabState : state.tabs) {
             addPaneTab(tabState, myPaneTabs.size());
@@ -117,7 +118,7 @@ public final class UnifiedFilePane implements Disposable, FileManagerTabStrip {
     public void openTab(Path directory) {
         UnifiedFileTab current = myActiveTab;
         String viewMode = current != null ? current.getViewMode().name() : ViewMode.TABLE.name();
-        insertTab(new TabState(directory.toString(), viewMode), myPaneTabs.size());
+        insertTab(new TabState(PlatformPaths.toPersistent(directory), viewMode), myPaneTabs.size());
     }
 
     @RequiredUIAccess
@@ -212,7 +213,7 @@ public final class UnifiedFilePane implements Disposable, FileManagerTabStrip {
             return;
         }
         UnifiedFileTab source = myPaneTabs.get(tabIndex).fileTab();
-        insertTab(new TabState(source.getCurrentPath().toString(), source.getViewMode().name()), tabIndex + 1);
+        insertTab(new TabState(PlatformPaths.toPersistent(source.getCurrentPath()), source.getViewMode().name()), tabIndex + 1);
     }
 
     @Override
@@ -262,7 +263,7 @@ public final class UnifiedFilePane implements Disposable, FileManagerTabStrip {
     public void openDirectoryInNewTab(Path path, @Nullable String selectName) {
         UnifiedFileTab current = myActiveTab;
         String viewMode = current != null ? current.getViewMode().name() : ViewMode.TABLE.name();
-        PaneTab paneTab = insertTab(new TabState(path.toString(), viewMode), myPaneTabs.size());
+        PaneTab paneTab = insertTab(new TabState(PlatformPaths.toPersistent(path), viewMode), myPaneTabs.size());
         if (selectName != null) {
             paneTab.fileTab().navigateTo(path, selectName);
         }
@@ -463,14 +464,17 @@ public final class UnifiedFilePane implements Disposable, FileManagerTabStrip {
         return null;
     }
 
-    /** A saved path which is gone or unreadable falls back, so a removed drive does not leave an empty tab. */
+    /**
+     * A saved path which is gone or unreadable falls back, so a removed drive does not leave an empty tab - and so does
+     * one of a machine which is not connected.
+     */
     private static Path initialPath(TabState state, Path fallbackPath) {
         if (state.path.isEmpty()) {
             return fallbackPath;
         }
         try {
-            Path path = Path.of(state.path);
-            return Files.isDirectory(path) ? path : fallbackPath;
+            Path path = PlatformPaths.fromPersistent(state.path);
+            return path != null && Files.isDirectory(path) ? path : fallbackPath;
         }
         catch (InvalidPathException e) {
             return fallbackPath;

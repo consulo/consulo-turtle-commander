@@ -11,6 +11,7 @@ import consulo.platform.Platform;
 import consulo.platform.PlatformFeature;
 import consulo.turtlecommander.model.FileEntry;
 import consulo.turtlecommander.model.FileRoot;
+import consulo.turtlecommander.model.Machine;
 import consulo.turtlecommander.settings.ColorRule;
 import consulo.turtlecommander.settings.ColorRuleManager;
 import consulo.turtlecommander.settings.ColumnConfig;
@@ -1140,6 +1141,16 @@ public class FileOperationService implements Disposable {
                 listener.accept(roots);
             }
         });
+    }
+
+    /** See {@link FileRootProvider#listMachines()}. */
+    public List<Machine> listMachines() {
+        return myRootProvider.listMachines();
+    }
+
+    /** See {@link FileRootProvider#locationOf(Path)}. */
+    public String locationOf(Path path) {
+        return myRootProvider.locationOf(path);
     }
 
     /** Scans the roots afresh; blocks, so call it off the UI thread. See {@link FileRootProvider#collectRoots()}. */

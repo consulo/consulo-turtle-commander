@@ -4,6 +4,7 @@ import consulo.annotation.component.ActionImpl;
 import consulo.localize.LocalizeValue;
 import consulo.turtlecommander.model.FileEntry;
 import consulo.turtlecommander.service.FileManagerStateService;
+import consulo.turtlecommander.util.PlatformPaths;
 import consulo.turtlecommander.ui.FileManagerTab;
 import consulo.ui.ex.action.AnActionEvent;
 
@@ -19,7 +20,7 @@ public class AddToFavoritesAction extends FileContextAction {
         FileEntry entry = FileContextMenuState.getClickedEntry(e);
         FileManagerStateService stateService = ActionTargets.stateService(e);
         if (entry != null && stateService != null) {
-            stateService.addFavorite(entry.path().toString(), "");
+            stateService.addFavorite(PlatformPaths.toPersistent(entry.path()), "");
         }
     }
 }

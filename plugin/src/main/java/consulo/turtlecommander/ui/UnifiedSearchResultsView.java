@@ -14,6 +14,7 @@ import consulo.turtlecommander.settings.ResolvedStyle;
 import consulo.turtlecommander.util.BackgroundProgress;
 import consulo.turtlecommander.util.DateTimeFormatters;
 import consulo.turtlecommander.util.FileUtils;
+import consulo.turtlecommander.util.PlatformPaths;
 import consulo.ui.Button;
 import consulo.ui.Component;
 import consulo.ui.HorizontalAlignment;
@@ -31,7 +32,6 @@ import consulo.ui.layout.ScrollableLayout;
 import consulo.ui.layout.VerticalLayout;
 import consulo.ui.model.FlatDataModel;
 import consulo.ui.model.MutableFlatDataModel;
-import consulo.virtualFileSystem.LocalFileSystem;
 import consulo.virtualFileSystem.VirtualFile;
 import org.jspecify.annotations.Nullable;
 
@@ -173,7 +173,7 @@ public final class UnifiedSearchResultsView implements Disposable {
         }
         Path path = entry.path();
         Application.get().executeOnPooledThread(() -> {
-            VirtualFile file = LocalFileSystem.getInstance().refreshAndFindFileByNioFile(path);
+            VirtualFile file = PlatformPaths.findVirtualFile(path, true);
             if (file != null) {
                 myUIAccess.give(() -> FileEditorManager.getInstance(myProject).openFile(file, true));
             }

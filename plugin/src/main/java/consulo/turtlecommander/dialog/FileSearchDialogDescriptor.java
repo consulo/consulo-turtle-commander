@@ -16,6 +16,7 @@ import consulo.turtlecommander.search.SizeFilterMode;
 import consulo.turtlecommander.search.SymlinkSearchFilter;
 import consulo.turtlecommander.settings.TurtleCommanderSettings;
 import consulo.turtlecommander.util.PermissionFlag;
+import consulo.turtlecommander.util.PlatformPaths;
 import consulo.ui.Alerts;
 import consulo.ui.CheckBox;
 import consulo.ui.ComboBox;
@@ -509,14 +510,14 @@ public final class FileSearchDialogDescriptor extends DialogDescriptor {
             return problem;
         }
 
-        /** The root must be a syntactically valid path - otherwise {@code Path.of} throws later. */
+        /** The root must be a syntactically valid path - otherwise parsing it throws later. */
         private @Nullable Problem validateRoot() {
             String text = text(myRootBox);
             if (text.isEmpty()) {
                 return new Problem("Enter a folder to search in", myRootBox, myGeneralTab);
             }
             try {
-                Path.of(text);
+                PlatformPaths.parseIn(myRoot, text);
                 return null;
             }
             catch (InvalidPathException e) {
@@ -585,7 +586,8 @@ public final class FileSearchDialogDescriptor extends DialogDescriptor {
             ResultKind kind = myResultKindGroup.getValue();
             SymlinkSearchFilter symlinks = mySymlinkBox.getValue();
             return new FileSearchCriteria(
-                Path.of(text(myRootBox)),
+                // a folder of the machine the search started on
+                PlatformPaths.parseIn(myRoot, text(myRootBox)),
                 selected(myNameCheck) && !name.isEmpty() ? name : null,
                 mode != null ? mode : NamePatternMode.GLOB,
                 selected(myCaseSensitiveCheck),

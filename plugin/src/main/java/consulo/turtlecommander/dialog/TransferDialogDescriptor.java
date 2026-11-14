@@ -5,6 +5,7 @@ import consulo.localize.LocalizeValue;
 import consulo.turtlecommander.model.FileEntry;
 import consulo.turtlecommander.service.OverwritePolicy;
 import consulo.turtlecommander.settings.TurtleCommanderSettings;
+import consulo.turtlecommander.util.PlatformPaths;
 import consulo.ui.Alerts;
 import consulo.ui.ComboBox;
 import consulo.ui.Component;
@@ -142,7 +143,8 @@ public final class TransferDialogDescriptor extends DialogDescriptor {
             return true;
         }
         try {
-            Path parsed = Path.of(text);
+            // a path of the destination's machine
+            Path parsed = PlatformPaths.parseIn(myDestination, text);
             myTargetDirectory = parsed.isAbsolute() ? parsed.normalize() : myDestination.resolve(parsed).normalize();
             return true;
         }
