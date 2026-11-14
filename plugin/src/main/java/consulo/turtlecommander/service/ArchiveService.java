@@ -5,6 +5,7 @@ import consulo.annotation.component.ServiceAPI;
 import consulo.annotation.component.ServiceImpl;
 import consulo.logging.Logger;
 import consulo.turtlecommander.operation.TarOutputStream;
+import consulo.turtlecommander.util.PlatformPaths;
 import consulo.turtlecommander.vfs.OpenVfsRegistry;
 import consulo.turtlecommander.vfs.VfsOpenProgress;
 import consulo.turtlecommander.vfs.VirtualFileSystem;
@@ -57,6 +58,33 @@ public class ArchiveService {
         ".oxt", ".pk3", ".pk4"
     );
 
+    /**
+     * A zip file system opens local files only - the archive of another machine is packed here, in a temporary file,
+     * and copied there; the one appended to is fetched first.
+     */
+    private int packZipOnAnotherMachine(Path archivePath, List<Path> sourcePaths, boolean appendToExisting, boolean archiveExists,
+                                        ProgressListener onProgress, ErrorListener onError, BooleanSupplier isCancelled)
+        throws IOException {
+        Path tempDir = Files.createTempDirectory("turtle-pack-");
+        Path fileName = archivePath.getFileName();
+        Path localArchive = tempDir.resolve(fileName != null ? fileName.toString() : "archive.zip");
+        try {
+            boolean append = appendToExisting && archiveExists;
+            if (append) {
+                Files.copy(archivePath, localArchive);
+            }
+            int packed = packZip(localArchive, sourcePaths, appendToExisting, append, onProgress, onError, isCancelled);
+            if (!isCancelled.getAsBoolean() || packed > 0) {
+                Files.copy(localArchive, archivePath, StandardCopyOption.REPLACE_EXISTING);
+            }
+            return packed;
+        }
+        finally {
+            Files.deleteIfExists(localArchive);
+            Files.deleteIfExists(tempDir);
+        }
+    }
+
     private enum ExtractAction {
         OVERWRITE, SKIP, CANCEL
     }
@@ -69,6 +97,10 @@ public class ArchiveService {
     public int packZip(Path archivePath, List<Path> sourcePaths, boolean appendToExisting, boolean archiveExists,
                        ProgressListener onProgress, ErrorListener onError, BooleanSupplier isCancelled)
         throws IOException {
+        if (!PlatformPaths.isLocal(archivePath)) {
+            return packZipOnAnotherMachine(archivePath, sourcePaths, appendToExisting, archiveExists, onProgress, onError,
+                isCancelled);
+        }
 
         Map<String, String> env = new HashMap<>();
         if (!appendToExisting && !archiveExists) {

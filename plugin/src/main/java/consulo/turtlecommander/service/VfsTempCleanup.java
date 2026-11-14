@@ -29,6 +29,8 @@ public final class VfsTempCleanup {
         "turtle-vfs-",
         // Archive entries extracted for a drag out of the panel.
         "turtle-dnd-",
+        // Another machine's archive fetched to extract it, and one packed here to be copied there.
+        "turtle-extract-", "turtle-pack-",
         // AbstractTempDirVirtualFileSystem subclasses; see their constructor arguments.
         "turtle-zip-", "turtle-tar-", "turtle-rar-", "turtle-7z-", "turtle-iso-",
         "turtle-pak-", "turtle-rpm-", "turtle-crx-", "turtle-ar-", "turtle-cab-", "turtle-decompress-"

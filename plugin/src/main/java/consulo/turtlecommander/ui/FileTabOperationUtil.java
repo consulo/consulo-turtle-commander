@@ -824,27 +824,67 @@ public final class FileTabOperationUtil {
             // opened, which would otherwise be invisible.
             VfsOpenProgress openProgress = VfsOpenProgress.fromIndicator(indicator);
 
-            for (Path archivePath : archivePaths) {
+            for (Path archive : archivePaths) {
                 if (indicator.isCanceled()) {
                     break;
                 }
                 indicator.setIndeterminate(true);
-                indicator.setText(LocalizeValue.localizeTODO(
-                    "Counting entries in " + archivePath.getFileName() + "..."));
-                int totalEntries = archiveService.countArchiveEntries(archivePath, openProgress);
-                indicator.setIndeterminate(false);
+                // the archive readers read files of this machine - another machine's archive is fetched once
+                Path localCopy;
+                try {
+                    localCopy = PlatformPaths.isLocal(archive) ? null : fetchArchive(archive, indicator);
+                }
+                catch (IOException e) {
+                    errorNotifier(tab, "Failed to extract").onError(archive, e);
+                    continue;
+                }
+                Path archivePath = localCopy != null ? localCopy : archive;
+                try {
+                    indicator.setText(LocalizeValue.localizeTODO(
+                        "Counting entries in " + archivePath.getFileName() + "..."));
+                    int totalEntries = archiveService.countArchiveEntries(archivePath, openProgress);
+                    indicator.setIndeterminate(false);
 
-                archiveService.extractArchiveWithProgress(archivePath, destination, initialPolicy,
-                    countingProgress(indicator, "Extracting", totalEntries),
-                    path -> askOverwriteConfirm(tab, path),
-                    errorNotifier(tab, "Failed to extract"),
-                    indicator::isCanceled,
-                    openProgress);
+                    archiveService.extractArchiveWithProgress(archivePath, destination, initialPolicy,
+                        countingProgress(indicator, "Extracting", totalEntries),
+                        path -> askOverwriteConfirm(tab, path),
+                        errorNotifier(tab, "Failed to extract"),
+                        indicator::isCanceled,
+                        openProgress);
+                }
+                finally {
+                    if (localCopy != null) {
+                        deleteQuietly(localCopy);
+                    }
+                }
             }
 
             tab.getFileOps().invalidateListingCache(destination);
             finishAndRefresh(tab);
         });
+    }
+
+    /** A copy of another machine's archive in a temporary folder of this one, under the archive's own name. */
+    private static Path fetchArchive(Path archive, ProgressIndicator indicator) throws IOException {
+        indicator.setText(LocalizeValue.localizeTODO("Fetching " + archive.getFileName() + "..."));
+        Path tempDir = Files.createTempDirectory("turtle-extract-");
+        Path fileName = archive.getFileName();
+        Path copy = tempDir.resolve(fileName != null ? fileName.toString() : "archive");
+        Files.copy(archive, copy);
+        return copy;
+    }
+
+    private static void deleteQuietly(Path localCopy) {
+        try {
+            Files.deleteIfExists(localCopy);
+            Path tempDir = localCopy.getParent();
+            if (tempDir != null) {
+                Files.deleteIfExists(tempDir);
+            }
+        }
+        catch (IOException e) {
+            // a temporary file - VfsTempCleanup sweeps what is left
+        }
     }
 
     // --- Opening -----------------------------------------------------------------------------------------

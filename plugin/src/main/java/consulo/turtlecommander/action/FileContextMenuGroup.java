@@ -12,6 +12,7 @@ import consulo.ui.ex.action.DefaultActionGroup;
     @ActionRef(type = OpenFileAction.class),
     @ActionRef(type = OpenInAssociatedAppAction.class),
     @ActionRef(type = OpenInExplorerAction.class),
+    @ActionRef(type = OpenInTerminalAction.class),
     @ActionRef(type = AnSeparator.class),
     @ActionRef(type = ContextCopyAction.class),
     @ActionRef(type = ContextCutAction.class),
