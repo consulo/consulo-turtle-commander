@@ -8,6 +8,6 @@ import consulo.turtlecommander.ui.FileTabOperationUtil;
 @ActionImpl(id = "TurtleCommander.OpenInAssociatedApp")
 public class OpenInAssociatedAppAction extends FileContextAction.Simple {
     public OpenInAssociatedAppAction() {
-        super(LocalizeValue.localizeTODO("Open in Associated Application"), null, FileContextAction::isFile, true, FileTabOperationUtil::openSelectedInAssociatedApp);
+        super(LocalizeValue.localizeTODO("Open in Associated Application"), null, FileContextAction::isLocalFile, true, FileTabOperationUtil::openSelectedInAssociatedApp);
     }
 }

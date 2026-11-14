@@ -14,7 +14,7 @@ import java.nio.file.Path;
 @ActionImpl(id = "TurtleCommander.OpenInExplorer")
 public class OpenInExplorerAction extends FileContextAction {
     public OpenInExplorerAction() {
-        super(LocalizeValue.localizeTODO("Open in Explorer"), null, FileContextAction::isRealEntry, false);
+        super(LocalizeValue.localizeTODO("Open in Explorer"), null, FileContextAction::isLocalEntry, false);
     }
 
     @Override

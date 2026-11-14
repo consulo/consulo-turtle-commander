@@ -1,7 +1,6 @@
 package consulo.turtlecommander.dialog;
 
 import consulo.application.ApplicationPropertiesComponent;
-import consulo.application.util.SystemInfo;
 import consulo.disposer.Disposable;
 import consulo.localize.LocalizeValue;
 import consulo.turtlecommander.search.DateFilter;
@@ -98,10 +97,9 @@ public final class FileSearchDialogDescriptor extends DialogDescriptor {
 
     private final Path myRoot;
     private final @Nullable FileSearchCriteria myInitial;
-    // the search runs where the files are, so the attribute model is the host's
-    private final boolean myHostWindows = SystemInfo.isWindows;
-    private final List<PermissionFlag> myPermissionFlagsForOs =
-        myHostWindows ? PermissionFlag.DOS_FLAGS : PermissionFlag.POSIX_FLAGS;
+    // the search runs where the files are, so the attribute model is that machine's - not necessarily this one's
+    private final boolean myHostWindows;
+    private final List<PermissionFlag> myPermissionFlagsForOs;
 
     private @Nullable Form myForm;
     private FileSearchCriteria myCriteria;
@@ -109,6 +107,8 @@ public final class FileSearchDialogDescriptor extends DialogDescriptor {
     public FileSearchDialogDescriptor(Path root, @Nullable FileSearchCriteria initial) {
         super(LocalizeValue.localizeTODO("Search Files"));
         myRoot = root;
+        myHostWindows = PlatformPaths.isWindows(root);
+        myPermissionFlagsForOs = myHostWindows ? PermissionFlag.DOS_FLAGS : PermissionFlag.POSIX_FLAGS;
         myInitial = initial;
         myCriteria = initial != null ? initial : defaultCriteria(root);
     }

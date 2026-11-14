@@ -3,6 +3,7 @@ package consulo.turtlecommander.action;
 import consulo.localize.LocalizeValue;
 import consulo.turtlecommander.model.FileEntry;
 import consulo.turtlecommander.ui.FileManagerTab;
+import consulo.turtlecommander.util.PlatformPaths;
 import consulo.turtlecommander.vfs.VirtualFileSystemRegistry;
 import consulo.ui.ex.action.AnActionEvent;
 import org.jspecify.annotations.Nullable;
@@ -81,6 +82,16 @@ public abstract class FileContextAction extends EdtAction {
     /** A real entry, i.e. not the ".." parent link. */
     public static boolean isRealEntry(FileManagerTab tab, FileEntry entry) {
         return !entry.parentLink();
+    }
+
+    /** A real entry of this machine - the desktop opens nothing of another one. */
+    public static boolean isLocalEntry(FileManagerTab tab, FileEntry entry) {
+        return isRealEntry(tab, entry) && PlatformPaths.isLocal(entry.path());
+    }
+
+    /** A file of this machine - see {@link #isLocalEntry}. */
+    public static boolean isLocalFile(FileManagerTab tab, FileEntry entry) {
+        return isFile(tab, entry) && PlatformPaths.isLocal(entry.path());
     }
 
     public static boolean isDirectory(FileManagerTab tab, FileEntry entry) {

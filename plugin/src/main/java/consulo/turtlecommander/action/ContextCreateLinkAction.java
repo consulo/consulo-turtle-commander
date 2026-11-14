@@ -8,6 +8,6 @@ import consulo.turtlecommander.ui.FileTabOperationUtil;
 @ActionImpl(id = "TurtleCommander.ContextCreateLink")
 public class ContextCreateLinkAction extends FileContextAction.Simple {
     public ContextCreateLinkAction() {
-        super(LocalizeValue.localizeTODO("Create Link..."), null, (tab, entry) -> FileContextAction.isRealEntry(tab, entry) && !tab.isInsideArchive(), true, FileTabOperationUtil::performCreateLink);
+        super(LocalizeValue.localizeTODO("Create Link..."), null, (tab, entry) -> FileContextAction.isLocalEntry(tab, entry) && !tab.isInsideArchive(), true, FileTabOperationUtil::performCreateLink);
     }
 }

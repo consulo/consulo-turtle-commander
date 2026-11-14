@@ -12,6 +12,7 @@ import consulo.application.Application;
 import consulo.platform.Platform;
 import consulo.ui.ex.dialog.DialogService;
 import consulo.turtlecommander.dialog.PropertiesDialogDescriptor;
+import consulo.turtlecommander.util.PlatformPaths;
 
 /**
  * Shows the platform's Properties / Get Info dialog for the right-clicked entry, falling back to a
@@ -41,7 +42,8 @@ public class ShowPropertiesAction extends FileContextAction {
         // Inside an archive the path points at a temp-extracted copy, whose size, dates and owner
         // don't match the archive entry — go straight to the dialog, which reads the entry record we
         // already have. In a browser the native window would open on the server's desktop, not the user's.
-        boolean canUseNative = !tab.isInsideArchive() && !Platform.current().isInBrowser();
+        // The native window shows this machine's files - a file of another machine gets the dialog too.
+        boolean canUseNative = !tab.isInsideArchive() && !Platform.current().isInBrowser() && PlatformPaths.isLocal(entry.path());
 
         // The native call shells out and can block for up to a second, so it runs off the UI thread
         // and only the fallback dialog hops back.

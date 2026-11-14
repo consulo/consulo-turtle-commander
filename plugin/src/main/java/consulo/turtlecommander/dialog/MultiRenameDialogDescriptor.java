@@ -1,11 +1,11 @@
 package consulo.turtlecommander.dialog;
 
-import consulo.application.util.SystemInfo;
 import consulo.disposer.Disposable;
 import consulo.disposer.Disposer;
 import consulo.localize.LocalizeValue;
 import consulo.turtlecommander.model.FileEntry;
 import consulo.turtlecommander.operation.MultiRenameTemplate;
+import consulo.turtlecommander.util.PlatformPaths;
 import consulo.turtlecommander.util.UiTask;
 import consulo.ui.Alerts;
 import consulo.ui.CheckBox;
@@ -92,6 +92,8 @@ public final class MultiRenameDialogDescriptor extends DialogDescriptor {
         + "</small></html>";
 
     private final List<FileEntry> myEntries;
+    /** Names of Windows ignore case - of the machine the files are on, not necessarily this one. */
+    private final boolean myWindows;
 
     private final MutableFlatDataModel<PreviewRow> myPreviewModel = FlatDataModel.of(List.of());
 
@@ -123,6 +125,7 @@ public final class MultiRenameDialogDescriptor extends DialogDescriptor {
     public MultiRenameDialogDescriptor(List<FileEntry> entries) {
         super(LocalizeValue.localizeTODO("Multi-Rename"));
         myEntries = entries;
+        myWindows = !entries.isEmpty() && PlatformPaths.isWindows(entries.get(0).path());
     }
 
     /** Populated when the dialog closes with OK. */
@@ -254,8 +257,8 @@ public final class MultiRenameDialogDescriptor extends DialogDescriptor {
         return snapshot;
     }
 
-    private static String foldName(String name) {
-        return SystemInfo.isWindows ? StringUtil.toLowerCase(name) : name;
+    private String foldName(String name) {
+        return myWindows ? StringUtil.toLowerCase(name) : name;
     }
 
     @RequiredUIAccess
@@ -288,7 +291,7 @@ public final class MultiRenameDialogDescriptor extends DialogDescriptor {
         }
 
         List<String> targets = MultiRenameTemplate.render(inputs, options);
-        Set<Integer> conflicts = MultiRenameTemplate.detectConflicts(sources, targets, SystemInfo.isWindows,
+        Set<Integer> conflicts = MultiRenameTemplate.detectConflicts(sources, targets, myWindows,
             this::existsOnDisk);
         myConflictRows = conflicts;
         myCurrentTargets = targets;

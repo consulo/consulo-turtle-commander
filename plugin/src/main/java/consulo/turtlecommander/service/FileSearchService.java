@@ -1,6 +1,5 @@
 package consulo.turtlecommander.service;
 
-import consulo.application.util.SystemInfo;
 import consulo.turtlecommander.model.FileEntry;
 import consulo.turtlecommander.search.DateFilter;
 import consulo.turtlecommander.search.FileSearchCriteria;
@@ -9,6 +8,7 @@ import consulo.turtlecommander.search.SizeFilter;
 import consulo.turtlecommander.util.FileAttributes;
 import consulo.turtlecommander.util.FileUtils;
 import consulo.turtlecommander.util.PermissionFlag;
+import consulo.turtlecommander.util.PlatformPaths;
 import consulo.turtlecommander.vfs.OpenVfsRegistry;
 import consulo.util.lang.StringUtil;
 import consulo.virtualFileSystem.fileType.FileTypeRegistry;
@@ -63,7 +63,7 @@ public class FileSearchService {
     private volatile boolean myPaused;
 
     public FileSearchService(FileSearchCriteria criteria) {
-        this(criteria, SystemInfo.isWindows, FileAttributes::readOwner, FileAttributes::readGroup, null);
+        this(criteria, PlatformPaths.isWindows(criteria.rootPath()), FileAttributes::readOwner, FileAttributes::readGroup, null);
     }
 
     public FileSearchService(FileSearchCriteria criteria, boolean windows,

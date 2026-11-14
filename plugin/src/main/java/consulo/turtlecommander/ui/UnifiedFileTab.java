@@ -843,6 +843,11 @@ public final class UnifiedFileTab implements Disposable, FileManagerTab {
         }
     }
 
+    /**
+     * The dragged entries themselves, within the IDE - a file of another machine has no {@link File} for the file list.
+     */
+    private static final DataTransferType<List<FileEntry>> ENTRIES = DataTransferType.create("turtlecommander/entries");
+
     private final class EntryTransferHandler implements DragAndDropTransferHandler<FileEntry> {
         @Override
         public @Nullable DataTransfer createTransfer(Component component) {
@@ -861,27 +866,49 @@ public final class UnifiedFileTab implements Disposable, FileManagerTab {
             Path destination = context.getPosition() == DropPosition.INTO && target.directory() && !target.parentLink()
                 ? target.path()
                 : myCurrentPath;
+            List<FileEntry> entries = context.getTransfer().get(ENTRIES);
+            if (entries != null && !entries.isEmpty()) {
+                if (allIn(entries.stream().map(FileEntry::path).toList(), destination)) {
+                    return false;
+                }
+                if (!context.isCheckOnly()) {
+                    FileTabOperationUtil.performCopyEntries(UnifiedFileTab.this, entries, destination, destination.toString());
+                }
+                return true;
+            }
             List<File> files = context.getTransfer().get(DataTransferType.FILE_LIST);
-            if (files == null || files.isEmpty() || allIn(files, destination)) {
+            if (files == null || files.isEmpty() || allIn(files.stream().map(File::toPath).toList(), destination)) {
                 return false;
             }
             return context.isCheckOnly() || copyInto(files, destination);
         }
 
+        /** The entries, and as a file list too when they are all of this machine - for what takes files outside the IDE. */
         private static @Nullable DataTransfer transferOf(List<FileEntry> entries) {
-            List<File> files = new ArrayList<>(entries.size());
+            List<FileEntry> dragged = new ArrayList<>(entries.size());
             for (FileEntry entry : entries) {
                 if (!entry.parentLink()) {
-                    files.add(entry.path().toFile());
+                    dragged.add(entry);
                 }
             }
-            return files.isEmpty() ? null : DataTransfer.builder().put(DataTransferType.FILE_LIST, files).build();
+            if (dragged.isEmpty()) {
+                return null;
+            }
+            DataTransfer.Builder builder = DataTransfer.builder().put(ENTRIES, List.copyOf(dragged));
+            if (dragged.stream().allMatch(entry -> PlatformPaths.isLocal(entry.path()))) {
+                List<File> files = new ArrayList<>(dragged.size());
+                for (FileEntry entry : dragged) {
+                    files.add(entry.path().toFile());
+                }
+                builder.put(DataTransferType.FILE_LIST, files);
+            }
+            return builder.build();
         }
 
         /** Dropping files on the folder they are in would copy them onto themselves. */
-        private static boolean allIn(List<File> files, Path directory) {
-            for (File file : files) {
-                if (!directory.equals(file.toPath().getParent())) {
+        private static boolean allIn(List<Path> paths, Path directory) {
+            for (Path path : paths) {
+                if (!directory.equals(path.getParent())) {
                     return false;
                 }
             }
@@ -895,6 +922,13 @@ public final class UnifiedFileTab implements Disposable, FileManagerTab {
      */
     @RequiredUIAccess
     private boolean dropFiles(Component component, DataTransfer transfer, boolean checkOnly) {
+        List<FileEntry> entries = transfer.get(ENTRIES);
+        if (entries != null && !entries.isEmpty()) {
+            if (!checkOnly) {
+                FileTabOperationUtil.performCopyEntries(this, entries, myCurrentPath, myCurrentPath.toString());
+            }
+            return true;
+        }
         List<File> files = transfer.get(DataTransferType.FILE_LIST);
         if (files == null || files.isEmpty()) {
             return false;

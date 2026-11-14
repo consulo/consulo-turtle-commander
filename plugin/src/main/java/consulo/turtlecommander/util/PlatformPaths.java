@@ -43,6 +43,11 @@ public final class PlatformPaths {
         return platform != null ? platform : Platform.current();
     }
 
+    /** Whether the machine {@code path} belongs to is a Windows one - not necessarily this one. */
+    public static boolean isWindows(Path path) {
+        return isLocal(path) ? Platform.current().os().isWindows() : platformOf(path).os().isWindows();
+    }
+
     public static boolean isLocal(Path path) {
         return path.getFileSystem() == FileSystems.getDefault();
     }

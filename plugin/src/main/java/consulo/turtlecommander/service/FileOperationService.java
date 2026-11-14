@@ -4,7 +4,6 @@ import consulo.annotation.component.ComponentScope;
 import consulo.annotation.component.ServiceAPI;
 import consulo.annotation.component.ServiceImpl;
 import consulo.application.Application;
-import consulo.application.util.SystemInfo;
 import consulo.disposer.Disposable;
 import consulo.logging.Logger;
 import consulo.platform.Platform;
@@ -19,8 +18,10 @@ import consulo.turtlecommander.settings.RuleMatcher;
 import consulo.turtlecommander.settings.TextProperty;
 import consulo.turtlecommander.settings.TurtleCommanderSettings;
 import consulo.turtlecommander.util.FileAttributes;
+import consulo.turtlecommander.util.PlatformPaths;
 import consulo.turtlecommander.vfs.OpenVfsRegistry;
 import consulo.turtlecommander.vfs.VfsPaths;
+import consulo.virtualFileSystem.VirtualFile;
 import jakarta.inject.Singleton;
 import org.jspecify.annotations.Nullable;
 
@@ -39,6 +40,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.DosFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -104,7 +106,12 @@ public class FileOperationService implements Disposable {
                                  @Nullable FileTime dirMtime) {
     }
 
-    private record EntryReadNeeds(boolean owner, boolean group, boolean permissions, boolean inode, boolean links) {
+    /**
+     * @param windows whether the listed machine is a Windows one - another machine than this one may be
+     * @param dos whether its file system answers DOS attributes - another machine's may only answer the basic ones
+     */
+    private record EntryReadNeeds(boolean windows, boolean dos, boolean owner, boolean group, boolean permissions, boolean inode,
+                                  boolean links) {
     }
 
     private record MoveDirResult(int movedCount, boolean cancelled, boolean leftBehind) {
@@ -113,7 +120,6 @@ public class FileOperationService implements Disposable {
     private record CountAndCancelled(int count, boolean cancelled) {
     }
 
-    private final boolean myWindows = SystemInfo.isWindows;
 
     private final Map<Path, CachedListing> myListingCache =
         new LinkedHashMap<>(CACHE_MAX_SIZE, 0.75f, true) {
@@ -132,7 +138,8 @@ public class FileOperationService implements Disposable {
      */
     private Predicate<Path> myMoveToTrash = path -> {
         try {
-            return Platform.current().moveToTrash(path);
+            // the trash of the machine the file is on
+            return PlatformPaths.platformOf(path).moveToTrash(path);
         }
         catch (UnsupportedOperationException e) {
             return false;
@@ -165,8 +172,20 @@ public class FileOperationService implements Disposable {
      * offering the recycle-bin dialog, so the user is never shown a reversible operation that would
      * actually run as a permanent delete.
      */
-    public boolean isRecycleBinAvailable() {
-        return myMoveToTrashSupported.getAsBoolean();
+    public boolean isRecycleBinAvailable(Collection<Path> paths) {
+        for (Path path : paths) {
+            if (!isRecycleBinAvailable(path)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Whether the machine {@code path} is on has a trash - another machine's has none so far. */
+    private boolean isRecycleBinAvailable(Path path) {
+        return PlatformPaths.isLocal(path)
+            ? myMoveToTrashSupported.getAsBoolean()
+            : PlatformPaths.platformOf(path).supportsFeature(PlatformFeature.MOVE_TO_TRASH);
     }
 
     // --- Listing --------------------------------------------------------------------------------
@@ -199,7 +218,7 @@ public class FileOperationService implements Disposable {
 
         List<FileEntry> dirs = new ArrayList<>();
         List<FileEntry> files = new ArrayList<>();
-        EntryReadNeeds needs = entryReadNeeds();
+        EntryReadNeeds needs = entryReadNeeds(effectiveDirectory);
 
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(effectiveDirectory)) {
             for (Path entry : stream) {
@@ -236,7 +255,7 @@ public class FileOperationService implements Disposable {
             result.add(VfsPaths.parentEntry(parent));
         }
 
-        EntryReadNeeds needs = entryReadNeeds();
+        EntryReadNeeds needs = entryReadNeeds(directory);
         List<FileEntry> files = new ArrayList<>();
 
         Path start;
@@ -283,7 +302,8 @@ public class FileOperationService implements Disposable {
      * column is hidden. Created/modified timestamps come from the same attribute read as size, so
      * they need no opt-in.
      */
-    private EntryReadNeeds entryReadNeeds() {
+    private EntryReadNeeds entryReadNeeds(Path directory) {
+        boolean windows = PlatformPaths.isWindows(directory);
         TurtleCommanderSettings settings = TurtleCommanderSettings.getInstance();
 
         Set<String> visibleColumnIds = new HashSet<>();
@@ -299,8 +319,10 @@ public class FileOperationService implements Disposable {
             : List.of();
 
         return new EntryReadNeeds(
+            windows,
+            windows && directory.getFileSystem().supportedFileAttributeViews().contains("dos"),
             visibleColumnIds.contains("User") || rulesMatchOn(activeRules, TextProperty.OWNER),
-            !myWindows && (visibleColumnIds.contains("Group") || rulesMatchOn(activeRules, TextProperty.GROUP)),
+            !windows && (visibleColumnIds.contains("Group") || rulesMatchOn(activeRules, TextProperty.GROUP)),
             visibleColumnIds.contains("Permissions") || rulesMatchOn(activeRules, TextProperty.PERMISSIONS),
             // Inode and Links are Unix-only and hidden by default; read them only when shown.
             visibleColumnIds.contains("Inode"),
@@ -329,7 +351,7 @@ public class FileOperationService implements Disposable {
             // and for the common non-link case it already is the real attributes (no second
             // syscall). On Windows read DosFileAttributes directly so permission flags come from
             // the same syscall as size/time.
-            boolean dosAttrs = myWindows && needs.permissions();
+            boolean dosAttrs = needs.dos() && needs.permissions();
             BasicFileAttributes linkAttrs = dosAttrs
                 ? Files.readAttributes(entry, DosFileAttributes.class, LinkOption.NOFOLLOW_LINKS)
                 : Files.readAttributes(entry, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
@@ -367,7 +389,7 @@ public class FileOperationService implements Disposable {
                 permissions = dosAttrsToString(dos);
             }
             else {
-                permissions = FileAttributes.readPermissions(entry, myWindows);
+                permissions = FileAttributes.readPermissions(entry, needs.windows());
             }
 
             return FileEntry.builder(entry.getFileName().toString(), entry)
@@ -383,10 +405,11 @@ public class FileOperationService implements Disposable {
                 .symbolicLink(isLink)
                 .brokenSymlink(broken)
                 .linkTarget(linkTarget)
-                .namedPipe(!myWindows && !isLink && attrs.isOther() && FileAttributes.isNamedPipe(entry))
+                .namedPipe(!needs.windows() && !isLink && attrs.isOther() && FileAttributes.isNamedPipe(entry))
                 .build();
         }
-        catch (IOException e) {
+        catch (IOException | UnsupportedOperationException e) {
+            // another machine's file system may not answer an attribute view - one entry never fails the listing
             LOG.debug("Cannot read attributes for " + entry, e);
             return null;
         }
@@ -459,6 +482,28 @@ public class FileOperationService implements Disposable {
         synchronized (myListingCache) {
             myListingCache.remove(directory);
         }
+        refreshInIde(directory);
+    }
+
+    /**
+     * The IDE's view of a folder of another machine is refreshed after a change - nothing may watch that machine's
+     * files for the IDE, as the IDE's own watcher does for this one's. Only a folder the IDE knows already.
+     */
+    private static void refreshInIde(Path directory) {
+        if (PlatformPaths.isLocal(directory)) {
+            return;
+        }
+        Application.get().executeOnPooledThread(() -> {
+            try {
+                VirtualFile file = PlatformPaths.findVirtualFile(directory, false);
+                if (file != null) {
+                    file.refresh(true, false);
+                }
+            }
+            catch (RuntimeException e) {
+                LOG.debug("Cannot refresh " + directory, e);
+            }
+        });
     }
 
     public void clearListingCache() {
@@ -918,7 +963,7 @@ public class FileOperationService implements Disposable {
             // The UI checks availability before showing the recycle-bin dialog; if support vanished
             // since (or a caller skipped that check), refuse rather than silently downgrading the
             // reversible operation the user confirmed into a permanent delete.
-            if (!myMoveToTrashSupported.getAsBoolean()) {
+            if (!isRecycleBinAvailable(paths)) {
                 for (Path path : paths) {
                     onError.onError(path, new IOException("Recycle Bin is not available on this system"));
                 }
@@ -1302,7 +1347,7 @@ public class FileOperationService implements Disposable {
      * the reparse point so the user can still enter them.
      */
     private Path resolveReparsePoint(Path directory) {
-        if (!myWindows) {
+        if (!PlatformPaths.isWindows(directory)) {
             return directory;
         }
         try {

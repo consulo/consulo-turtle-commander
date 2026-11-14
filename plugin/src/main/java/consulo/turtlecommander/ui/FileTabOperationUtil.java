@@ -214,12 +214,21 @@ public final class FileTabOperationUtil {
         // knowingly confirms a permanent delete instead of silently getting one.
         boolean wantsRecycleBin = !forcePermanent
             && TurtleCommanderSettings.getInstance().getState().deleteToRecycleBin;
-        boolean useRecycleBin = wantsRecycleBin && tab.getFileOps().isRecycleBinAvailable();
+        List<Path> paths = new ArrayList<>(selected.size());
+        for (FileEntry entry : selected) {
+            paths.add(entry.path());
+        }
+        boolean useRecycleBin = wantsRecycleBin && tab.getFileOps().isRecycleBinAvailable(paths);
         boolean downgraded = wantsRecycleBin && !useRecycleBin;
+        // another machine has no trash of its own - that is no reason to turn the setting off for this one
+        boolean onThisMachine = paths.stream().allMatch(PlatformPaths::isLocal);
 
         DeleteDialogDescriptor descriptor = new DeleteDialogDescriptor(selected, useRecycleBin,
-            downgraded ? "Recycle Bin is not available on this system \u2014 items will be deleted permanently." : null,
-            downgraded ? "Turn off \"Delete to Recycle Bin\" and don't show this note again" : null);
+            downgraded
+                ? "Recycle Bin is not available on " + (onThisMachine ? "this system" : "that machine")
+                + " \u2014 items will be deleted permanently."
+                : null,
+            downgraded && onThisMachine ? "Turn off \"Delete to Recycle Bin\" and don't show this note again" : null);
         showDialog(descriptor, () -> {
             if (downgraded && descriptor.isCheckboxSelected()) {
                 TurtleCommanderSettings.getInstance().getState().deleteToRecycleBin = false;
@@ -373,6 +382,11 @@ public final class FileTabOperationUtil {
         }
         Path destination = tab.getOtherPanelPath();
         if (destination == null) {
+            return;
+        }
+        // a link names a path of its own machine, and another machine's file system cannot make links yet
+        if (!PlatformPaths.isLocal(destination) || !selected.stream().allMatch(entry -> PlatformPaths.isLocal(entry.path()))) {
+            tab.fileErrorNotification("Cannot create links on another machine");
             return;
         }
         String displayPath = resolveDisplayPath(tab, destination, null);
@@ -962,6 +976,11 @@ public final class FileTabOperationUtil {
     public static void openSelectedInAssociatedApp(FileManagerTab tab) {
         FileEntry entry = tab.getSelectedEntry();
         if (entry == null || entry.parentLink() || entry.directory()) {
+            return;
+        }
+        if (!PlatformPaths.isLocal(entry.path())) {
+            // the applications of this machine cannot open a file of another one
+            notifyError(tab, "Cannot open a file of another machine in an application of this one: " + entry.name());
             return;
         }
         VirtualFileSystem vfs = tab.getCurrentVfs();
